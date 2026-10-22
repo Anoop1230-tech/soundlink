@@ -5,6 +5,7 @@ import 'services/audio.dart';
 import 'services/store.dart';
 import 'services/wallet_store.dart';
 import 'ui/access_screen.dart';
+import 'ui/fallback_screens.dart';
 import 'ui/history_screen.dart';
 import 'ui/receive_screen.dart';
 import 'ui/send_screen.dart';
@@ -70,6 +71,13 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('SoundLink'),
         actions: [
+          FallbackButton(store: widget.store),
+          IconButton(
+            tooltip: 'Sound test (real phones)',
+            icon: const Icon(Icons.speed),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+                builder: (_) => SoundTestPage(store: widget.store, player: player, mainListener: listener))),
+          ),
           IconButton(
             tooltip: 'Settings',
             icon: const Icon(Icons.settings),

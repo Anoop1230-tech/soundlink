@@ -133,6 +133,60 @@ def cmd_getfile(args) -> None:
             return
 
 
+def cmd_qr(args) -> None:
+    """Show a message as QR code(s) instead of sound (fallback)."""
+    import segno
+
+    from .fallback import to_qr_texts
+
+    link = _sender(args)
+    packet = Packet(PacketType.TEXT, args.text.encode()).to_bytes(sign_with=link.identity, key=link.key)
+    texts = to_qr_texts(packet)
+    for i, t in enumerate(texts, 1):
+        qr = segno.make(t, error="m")
+        if args.out:
+            name = args.out if len(texts) == 1 else args.out.replace(".png", f"-{i}.png")
+            qr.save(name, scale=8)
+            print(f"saved {name}")
+        else:
+            print(f"QR {i}/{len(texts)} (scan with SoundLink: Receive -> Scan QR)")
+            qr.terminal(compact=True)
+
+
+def cmd_testsend(args) -> None:
+    """Play numbered test packets so a receiver can measure the real success rate."""
+    from .fallback import make_test_payload
+
+    link = _sender(args)
+    print(f"playing {args.count} test packets of {args.size} bytes ({args.profile})")
+    for i in range(args.count):
+        wave = link.encode(Packet(0x70, make_test_payload(args.profile, i, args.count, args.size)), encrypt=False)
+        print(f"  {i + 1}/{args.count}")
+        audio.play(wave, link.sample_rate)
+        time.sleep(args.pause)
+
+
+def cmd_testrecv(args) -> None:
+    from .fallback import SoundTestScore
+
+    rx = Receiver(args.profile)
+    score = SoundTestScore(args.profile)
+    print(f"listening for test packets ({args.profile}) for {args.seconds:.0f}s, Ctrl+C to stop early")
+    end = time.time() + args.seconds
+    try:
+        for block in audio.listen(PROFILES[args.profile].sample_rate):
+            for r in rx.feed(block):
+                if r.packet is not None and r.packet.type == 0x70 and r.frames:
+                    f = r.frames[0]
+                    if score.add(r.packet.payload, f.quality, f.corrected, time.time()):
+                        print(f"  got {len(score.good)}/{score.total}")
+            if time.time() > end or (score.total and len(score.good) == score.total):
+                break
+    except KeyboardInterrupt:
+        pass
+    print(score.summary())
+
+
 def cmd_keygen(args) -> None:
     identity = Identity.generate()
     identity.save(args.path)
@@ -404,6 +458,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--save", help="save the recording to a WAV file")
     common(p, sender=True)
     p.set_defaults(func=cmd_loopback)
+
+    p = sub.add_parser("qr", help="show a message as QR code(s) (fallback)")
+    p.add_argument("text")
+    p.add_argument("--out", help="save PNG instead of printing in the terminal")
+    common(p, sender=True)
+    p.set_defaults(func=cmd_qr)
+
+    p = sub.add_parser("testsend", help="real-device test: play numbered packets")
+    p.add_argument("--count", type=int, default=10)
+    p.add_argument("--size", type=int, default=64)
+    p.add_argument("--pause", type=float, default=0.5)
+    common(p, sender=True)
+    p.set_defaults(func=cmd_testsend)
+
+    p = sub.add_parser("testrecv", help="real-device test: count what arrived")
+    p.add_argument("--seconds", type=float, default=120)
+    common(p)
+    p.set_defaults(func=cmd_testrecv)
 
     p = sub.add_parser("alert", help="broadcast an emergency alert")
     p.add_argument("title")

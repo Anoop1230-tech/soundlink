@@ -7,6 +7,7 @@ import '../services/actions.dart';
 import '../services/audio.dart';
 import '../services/store.dart';
 import '../services/wallet_store.dart';
+import 'fallback_screens.dart';
 
 /// "12.50" -> 1250 paise. Returns null if it isn't a valid amount.
 int? parseRupees(String s) {
@@ -309,7 +310,7 @@ abstract class _FlowState<T extends StatefulWidget> extends State<T> {
   }
 
   Widget flowBody(String title, List<Widget> extra) => Scaffold(
-        appBar: AppBar(title: Text(title)),
+        appBar: AppBar(title: Text(title), actions: [FallbackButton(store: screen.store)]),
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -373,7 +374,7 @@ class _PayPageState extends _FlowState<PayPage> {
       final link = SoundLink(profile, volume: screen.store.volume);
       for (var attempt = 1; attempt <= 3 && !cancelled; attempt++) {
         set(attempt == 1 ? 'Sending payment…' : 'No receipt yet, sending again ($attempt/3)…', i: Icons.volume_up);
-        await screen.player.play(link.encodeBytes(raw), link.sampleRate);
+        await screen.player.playPacket(link, raw);
         set('Waiting for the receipt…', i: Icons.hearing);
         final rc = await waitForPacket(listener, profile, {PacketType.paymentReceipt}, const Duration(seconds: 12), () => cancelled);
         if (rc == null) continue;
@@ -425,13 +426,13 @@ class _RequestPageState extends _FlowState<RequestPage> {
       final req = m.newRequest(paise, note: note.text);
       await ws.saveMerchant();
       final link = SoundLink(profile, volume: screen.store.volume);
-      final reqSound = link.encodeBytes(await requestPacket(req, me), repeat: 2);
+      final reqRaw = await requestPacket(req, me);
       final deadline = DateTime.now().add(const Duration(minutes: 3));
       var round = 0;
       while (!cancelled && DateTime.now().isBefore(deadline)) {
         if (round++ % 3 == 0) {
           set('Asking for ${rupees(paise)}…', i: Icons.volume_up);
-          await screen.player.play(reqSound, link.sampleRate);
+          await screen.player.playPacket(link, reqRaw, repeat: 2);
         }
         set('Waiting for payment of ${rupees(paise)}…', i: Icons.hearing);
         String? problem;
@@ -448,7 +449,7 @@ class _RequestPageState extends _FlowState<RequestPage> {
         }
         await ws.saveMerchant();
         set('Got ${rupees(res.record.amount)}! Sending receipt…', i: Icons.volume_up);
-        await screen.player.play(link.encodeBytes(await m.receiptPacket(res.receipt, me), repeat: 2), link.sampleRate);
+        await screen.player.playPacket(link, await m.receiptPacket(res.receipt, me), repeat: 2);
         return set('Received ${rupees(res.record.amount)} from ${fingerprintOf(bytesFromHex(res.record.wallet))}\n'
             'Sync when online to move it to the bank.', i: Icons.check_circle, done: true);
       }
@@ -462,7 +463,7 @@ class _RequestPageState extends _FlowState<RequestPage> {
   Widget build(BuildContext context) {
     if (started) return flowBody('Request money', const []);
     return Scaffold(
-      appBar: AppBar(title: const Text('Request money')),
+      appBar: AppBar(title: const Text('Request money'), actions: [FallbackButton(store: screen.store)]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         TextField(
           controller: amount,

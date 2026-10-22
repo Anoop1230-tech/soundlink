@@ -97,6 +97,12 @@ class Receiver {
 
   Future<List<Received>> flush() => _process(demod.flush());
 
+  /// Add a chunk that came another way (QR code, Bluetooth). Same checks as sound.
+  Future<List<Received>> feedChunk(List<int> chunk) async {
+    final data = _reassembler.add(chunk);
+    return data == null ? [] : [await _handle(data)];
+  }
+
   Future<List<Received>> _process(List<Frame> frames) async {
     final out = <Received>[];
     for (final f in frames) {

@@ -4,7 +4,9 @@ Send data between devices using sound. No internet, no Bluetooth, no pairing.
 
 SoundLink is a secure, offline platform for sharing small pieces of data through a speaker and a microphone: payments, Wi-Fi passwords, contacts, attendance, tickets, door unlock, login, emergency alerts and more. Every feature uses the same core engine; only the data inside the packet changes.
 
-> Status: **Phase 5 done.** Core engine (Python), Android app (Flutter), offline payments, attendance / tickets / doors / login, and now a **10x faster turbo mode**, **file sharing**, **emergency alerts** and an **ESP32 sensor** that talks to the app.
+> Status: **All 6 phases done.** See the [demo guide](docs/DEMO.md).
+>
+> Phase 5: Core engine (Python), Android app (Flutter), offline payments, attendance / tickets / doors / login, and now a **10x faster turbo mode**, **file sharing**, **emergency alerts** and an **ESP32 sensor** that talks to the app.
 
 ## Project layout
 
@@ -189,6 +191,18 @@ python -m soundlink bench --profiles fast turbo
 
 In the app, **Send** has new **File** and **Emergency alert** options, the **Receive** tab shows alert, sensor and file cards, and **Settings** has the turbo mode and the list of trusted alert senders.
 
+## Fallback and real-device testing (Phase 6)
+
+- **QR fallback:** any packet can be shown as QR codes (`SL1:` + base64 of one chunk, 400 bytes per code) and scanned with the camera. Big packets cycle through several codes. Scanned chunks go into the same receiver as sound, so CRC, signature, decryption and replay checks are unchanged. In the app, tap the **QR** icon in the top bar of any screen: *Show last sent as QR* or *Scan a QR code*.
+- **Bluetooth / Wi-Fi nearby:** sends the same signed packet with Google Nearby Connections (no internet), from the same menu.
+- **Sound test:** the speedometer icon opens a two-phone test that plays numbered packets and reports % received, signal quality and bytes fixed by error correction, with **Copy CSV** for your report. Laptop version: `python -m soundlink testsend` / `testrecv`.
+
+```powershell
+python -m soundlink qr "hello"                 # QR in the terminal (or --out hello.png)
+python -m soundlink testsend --count 10 --profile fast
+python -m soundlink testrecv --profile fast
+```
+
 ## Roadmap
 
 - [x] **Phase 1:** core engine (packet, crypto, error correction, modem, tests, benchmark)
@@ -196,4 +210,4 @@ In the app, **Send** has new **File** and **Emergency alert** options, the **Rec
 - [x] **Phase 3:** offline payment (wallet, bank certificates, sync, double-spend check)
 - [x] **Phase 4:** attendance, tickets, door unlock, login/2FA
 - [x] **Phase 5:** file transfer, emergency broadcast, ESP32 sensor demo, faster (turbo OFDM) modem
-- [ ] **Phase 6:** auto fallback (sound / QR / BLE), real-device benchmarks, demo
+- [x] **Phase 6:** fallback (QR / Bluetooth), real-device test screen, demo guide

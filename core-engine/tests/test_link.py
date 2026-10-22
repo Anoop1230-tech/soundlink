@@ -61,6 +61,11 @@ def test_wav_round_trip(tmp_path):
     assert decode_audio(y, profile="normal")[0].packet.payload == b"wav test"
 
 
+def test_cli_qr_png(tmp_path, capsys):
+    main(["qr", "namaste", "--out", str(tmp_path / "q.png")])
+    assert (tmp_path / "q.png").stat().st_size > 100
+
+
 def test_cli_encode_decode(tmp_path, capsys):
     key_file, wav = tmp_path / "me.key", tmp_path / "msg.wav"
     main(["keygen", str(key_file)])

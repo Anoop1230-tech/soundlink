@@ -100,6 +100,11 @@ class Receiver:
     def flush(self) -> list[Received]:
         return self._process(self.demod.flush())
 
+    def feed_chunk(self, chunk: bytes) -> list[Received]:
+        """Add a chunk that came another way (QR code, Bluetooth). Same checks as sound."""
+        data = self._reassembler.add(chunk)
+        return [] if data is None else [self._handle(data)]
+
     def _process(self, frames: list[Frame]) -> list[Received]:
         out = []
         for frame in frames:

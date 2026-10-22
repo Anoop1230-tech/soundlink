@@ -9,6 +9,7 @@ import '../services/access_store.dart';
 import '../services/actions.dart';
 import '../services/audio.dart';
 import '../services/store.dart';
+import 'fallback_screens.dart';
 import 'wallet_screen.dart' show waitForPacket;
 
 /// Everything the Access pages need.
@@ -97,7 +98,7 @@ abstract class FlowState<T extends FlowPage> extends State<T> {
 
   Future<void> say(List<int> raw, {int repeat = 1}) async {
     final l = deps.link;
-    await deps.player.play(l.encodeBytes(raw, repeat: repeat), l.sampleRate);
+    await deps.player.playPacket(l, raw, repeat: repeat);
   }
 
   Future<void> run(Future<void> Function() body) async {
@@ -206,7 +207,7 @@ class _StudentState extends FlowState<StudentPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text("I'm a student")),
+        appBar: AppBar(title: const Text("I'm a student"), actions: [FallbackButton(store: deps.app)]),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           TextField(controller: name, enabled: !running, decoration: const InputDecoration(labelText: 'Your name', border: OutlineInputBorder())),
           statusBox(),
@@ -260,7 +261,7 @@ class _TeacherState extends FlowState<TeacherPage> {
   Widget build(BuildContext context) {
     final c = cls;
     return Scaffold(
-      appBar: AppBar(title: const Text('Take attendance')),
+      appBar: AppBar(title: const Text('Take attendance'), actions: [FallbackButton(store: deps.app)]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         TextField(controller: title, enabled: !running, decoration: const InputDecoration(labelText: 'Class name', border: OutlineInputBorder())),
         const SizedBox(height: 8),
@@ -343,7 +344,7 @@ class _TicketsState extends FlowState<TicketsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('My tickets')),
+        appBar: AppBar(title: const Text('My tickets'), actions: [FallbackButton(store: deps.app)]),
         body: ListenableBuilder(
           listenable: deps.store,
           builder: (context, _) => ListView(padding: const EdgeInsets.all(16), children: [
@@ -454,7 +455,7 @@ class _OrganizerState extends FlowState<OrganizerPage> {
   Widget build(BuildContext context) {
     final e = ev;
     return Scaffold(
-      appBar: AppBar(title: Text(e == null ? 'Organize an event' : e.name)),
+      appBar: AppBar(title: Text(e == null ? 'Organize an event' : e.name), actions: [FallbackButton(store: deps.app)]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         if (e == null) ...[
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Event name', border: OutlineInputBorder())),
@@ -550,7 +551,7 @@ class _DoorKeyState extends FlowState<DoorKeyPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Unlock a door')),
+        appBar: AppBar(title: const Text('Unlock a door'), actions: [FallbackButton(store: deps.app)]),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           statusBox(),
           if (running)
@@ -617,7 +618,7 @@ class _DoorModeState extends FlowState<DoorModePage> {
   Widget build(BuildContext context) {
     final d = deps.store.door;
     return Scaffold(
-      appBar: AppBar(title: Text(d == null ? 'Make this phone a door' : 'Door: ${d.name}')),
+      appBar: AppBar(title: Text(d == null ? 'Make this phone a door' : 'Door: ${d.name}'), actions: [FallbackButton(store: deps.app)]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         if (d == null) ...[
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Door name (e.g. Lab 3)', border: OutlineInputBorder())),
@@ -733,7 +734,7 @@ class _LoginState extends FlowState<LoginPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Log in to a website')),
+        appBar: AppBar(title: const Text('Log in to a website'), actions: [FallbackButton(store: deps.app)]),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           statusBox(),
           startStop('Listen for login', _listen),

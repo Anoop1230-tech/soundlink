@@ -92,6 +92,13 @@ def main(out_dir: str) -> None:
     vectors["payment"] = pv
     vectors["access"] = _access_vectors(me)
     vectors["extras"] = _extra_vectors()
+    from soundlink.fallback import make_test_payload, to_qr_texts
+    vectors["fallback"] = {
+        "qr_packet": bytes.fromhex(vectors["packets"]["signed"]).hex(),
+        "qr_texts": to_qr_texts(bytes.fromhex(vectors["packets"]["signed"])),
+        "qr_big_texts": to_qr_texts(Packet(PacketType.TEXT, bytes(range(256)) * 4, msg_id=1, timestamp=2).to_bytes(compress=False)),
+        "test_payload": make_test_payload("turbo", 5, 10, 32).hex(),
+    }
     # turbo: one clean, one through the noisy room, and one multi-chunk inline file
     from soundlink.extras import FileOffer
     wav("turbo_text.wav", "turbo", PacketType.TEXT, "turbo from python ".encode() * 20, sign=False)

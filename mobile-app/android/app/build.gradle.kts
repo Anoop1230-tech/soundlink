@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.anoop.soundlink"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37 // permission_handler needs 37; targetSdk stays the Flutter default
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -5,9 +5,10 @@
     <!-- Add a received Wi-Fi network (Android shows a confirm prompt). -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <!-- The Wi-Fi plugin asks for these, but adding a network doesn't need them. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <!-- Bluetooth fallback (Nearby Connections) needs location only on Android 12 and older;
+         newer phones use the Bluetooth / nearby-devices permissions instead. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" tools:node="replace" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="32" tools:node="replace" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:node="remove" />
     <!-- Talk to the demo bank (only for load / unload / sync). -->
     <uses-permission android:name="android.permission.INTERNET" />

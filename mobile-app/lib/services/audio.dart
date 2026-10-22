@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../engine/engine.dart';
+import 'fallback.dart';
 
 class SoundPlayer {
   final AudioPlayer _player = AudioPlayer();
@@ -27,14 +28,27 @@ class SoundPlayer {
     await done.timeout(Duration(milliseconds: (audio.length / sampleRate * 1000).round() + 3000), onTimeout: () {});
   }
 
+  /// Plays a built packet and remembers it, so it can be shown as QR or sent by Bluetooth if sound fails.
+  Future<void> playPacket(SoundLink link, List<int> raw, {int repeat = 1}) {
+    FallbackHub.instance.remember(raw);
+    return play(link.encodeBytes(raw, repeat: repeat), link.sampleRate);
+  }
+
   Future<void> stop() => _player.stop();
 
   void dispose() => _player.dispose();
 }
 
 /// Listens on the mic and feeds the engine. Emits decoded packets.
-class SoundListener {
+class SoundListener implements ChunkSink {
+  SoundListener() {
+    FallbackHub.instance.register(this);
+  }
+
   final AudioRecorder _rec = AudioRecorder();
+  // Collects chunks that come by QR / Bluetooth (kept across mic restarts so a
+  // multi-QR packet can be scanned slowly).
+  final Receiver _chunkRx = Receiver(profiles['normal']!);
   StreamSubscription<Uint8List>? _sub;
   Receiver? _receiver;
   final _out = StreamController<Received>.broadcast();
@@ -45,6 +59,7 @@ class SoundListener {
   /// Peak input level 0..1, about 10 times a second.
   Stream<double> get level => _level.stream;
 
+  @override
   bool get listening => _sub != null;
 
   (int, int)? get progress => _receiver?.progress;
@@ -98,7 +113,18 @@ class SoundListener {
     }
   }
 
+  @override
+  Future<void> injectChunk(Uint8List chunk) async {
+    for (final r in await _chunkRx.feedChunk(chunk)) {
+      if (!_out.isClosed) _out.add(r);
+    }
+  }
+
+  /// (got, total) of a multi-QR packet being scanned.
+  (int, int)? get chunkProgress => _chunkRx.progress;
+
   Future<void> dispose() async {
+    FallbackHub.instance.unregister(this);
     await stop();
     await _rec.dispose();
     await _out.close();

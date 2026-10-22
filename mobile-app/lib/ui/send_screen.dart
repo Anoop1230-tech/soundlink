@@ -7,6 +7,8 @@ import '../engine/engine.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../services/actions.dart';
+import '../services/fallback.dart';
+import 'fallback_screens.dart';
 import '../services/files.dart';
 import '../services/audio.dart';
 import '../services/store.dart';
@@ -24,7 +26,9 @@ class Sender {
     if (listener.listening) await listener.stop();
     final key = pin.isEmpty ? null : await keyFromPin(pin);
     final link = SoundLink(store.profile, identity: store.identity, key: key, volume: store.volume);
-    final audio = await link.encode(Packet(type, payload), repeat: store.repeat);
+    final raw = await Packet(type, payload).toBytes(signWith: store.identity, key: key);
+    final audio = link.encodeBytes(raw, repeat: store.repeat);
+    FallbackHub.instance.remember(raw);
     await store.addHistory(HistoryItem(
       sent: true,
       type: type,
@@ -126,7 +130,7 @@ class _SendPageState extends State<_SendPage> {
   Widget build(BuildContext context) {
     final store = widget.sender.store;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(title: Text(widget.title), actions: [FallbackButton(store: widget.sender.store)]),
       body: Form(
         key: _form,
         child: ListView(

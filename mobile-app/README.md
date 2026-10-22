@@ -8,6 +8,7 @@ Flutter app (Android) that sends and receives contacts, Wi-Fi networks, offers a
 - **Send:** pick contact, Wi-Fi, offer, text, **file** or **emergency alert**, fill the form and tap **Send by sound**. Wi-Fi is PIN-locked by default. Big files are served over the local Wi-Fi and only the link goes by sound.
 - **Access:** attendance (student / teacher), tickets (get, show at gate, organize an event), doors (unlock, ask to be added, make this phone a door) and website login.
 - **History:** everything sent and received on this phone.
+- **Top bar:** QR icon = show the last packet as QR / scan a QR / Bluetooth; speedometer = sound test between two phones.
 - **Wallet:** offline payments with demo money. Connect to the bank (`python -m soundbank serve` on a laptop), load money, then **Pay** (listen for a shop's request, confirm, play the payment, hear the receipt) or **Request money** (play a request, check the payment offline, play a receipt). **Sync** sends received payments to the bank.
 - **Settings:** sound mode (normal / fast / ultrasonic), volume, how many times to repeat, and this device's ID.
 
@@ -34,7 +35,7 @@ test/
 - The device signing key is created on first launch and kept in `flutter_secure_storage` (Android Keystore).
 - The mic is opened in "unprocessed" mode with echo cancel, noise suppression and auto gain turned off, because voice processing removes our tones.
 - Sound is played as a 48 kHz WAV so Android doesn't compress it.
-- Permissions: microphone (only while listening), Wi-Fi state (to add a received network) and internet (only for the bank). Location is removed from the manifest because adding a network doesn't need it.
+- Permissions: microphone (only while listening), Wi-Fi state (to add a received network), internet (only for the bank), camera (only for QR scanning) and Bluetooth / nearby devices (only for the Bluetooth fallback; location is asked only on Android 12 and older, which need it for Bluetooth scanning). Location is removed from the manifest because adding a network doesn't need it.
 - Plain http is allowed (`usesCleartextTraffic`) so the phone can reach the demo bank on a laptop. Remove it and use https for anything real.
 
 ## Build and run
@@ -43,7 +44,7 @@ test/
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --release      # build\app\outputs\flutter-apk\app-release.apk
+flutter build apk --release      # build\app\outputs\flutter-apk\app-release.apk (needs SDK platform 37: sdkmanager "platforms;android-37.0")
 flutter install                  # with a phone connected over USB (USB debugging on)
 ```
 
