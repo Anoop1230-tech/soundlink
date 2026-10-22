@@ -12,5 +12,9 @@ dist/
 # ...except the small test recordings the app tests need
 !mobile-app/test/fixtures/*.wav
 
+# demo bank data (contains the bank's private key) and CLI wallets
+backend/data/
+.soundlink/
+
 .vscode/
 .idea/

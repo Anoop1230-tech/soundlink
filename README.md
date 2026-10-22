@@ -4,7 +4,7 @@ Send data between devices using sound. No internet, no Bluetooth, no pairing.
 
 SoundLink is a secure, offline platform for sharing small pieces of data through a speaker and a microphone: payments, Wi-Fi passwords, contacts, attendance, tickets, door unlock, login, emergency alerts and more. Every feature uses the same core engine; only the data inside the packet changes.
 
-> Status: **Phase 2 done.** Core engine (Python) + Android app (Flutter) that shares contacts, Wi-Fi networks and offers by sound. The phone and the laptop can talk to each other.
+> Status: **Phase 3 done.** Core engine (Python), Android app (Flutter) that shares contacts, Wi-Fi networks and offers by sound, and **offline payments** with demo money plus a small bank server that catches double spending.
 
 ## Project layout
 
@@ -12,6 +12,39 @@ SoundLink is a secure, offline platform for sharing small pieces of data through
 |---|---|
 | `core-engine/` | Python engine and command line tool (see below) |
 | `mobile-app/` | Flutter Android app with a Dart copy of the engine ([README](mobile-app/README.md)) |
+| `backend/` | SoundBank, a demo bank server for offline payments (FastAPI + SQLite) |
+
+## Offline payments (demo money)
+
+```
+ ONLINE   phone ── load Rs 300 ──► bank signs a certificate: "this wallet may spend Rs 300"
+ OFFLINE  shop  ── request Rs 20 (signed) ──────────► customer
+          shop  ◄── payment (signed by wallet, carries the bank certificate) ── customer
+          shop  ── receipt (signed) ─────────────────► customer
+ ONLINE   shop  ── sync ──► bank settles and checks for double spending
+```
+
+- The shop checks everything **offline** with only the bank's public key: the bank certificate, the wallet signature, the amount, and that the payment answers its own request (so an old recorded payment can't be played again).
+- The phone saves "money spent" **before** it plays the payment, so a crash can't create money.
+- Each payment has a number (counter) and a running total. If someone copies their wallet file and spends the same money twice, the two payments share a number. The same shop refuses it on the spot; a different shop finds out when it syncs. The bank still pays the shop, freezes the cheater and takes the money back.
+- Limits: Rs 500 per payment, Rs 2000 in the offline wallet, certificate valid 30 days.
+- Formats are in `core-engine/soundlink/payment.py`. A payment is 104 bytes and fits in one sound frame.
+
+```powershell
+cd backend
+pip install -e .
+python -m soundbank demo                 # whole story in a fake room, no mic needed
+python -m soundbank serve                # run the bank for the phones (port 8000)
+python -m soundbank register "Anoop"     # laptop wallet: Rs 1000 demo money
+python -m soundbank load 300
+python -m soundbank request 20 --note tea    # act as the shop
+python -m soundbank pay                      # act as the customer
+python -m soundbank sync
+```
+
+In the app: **Wallet** tab → enter the bank address (the laptop's Wi-Fi IP, e.g. `http://192.168.1.10:8000`) → Load → **Pay** or **Request money**.
+
+Not safe for real money: the bank runs over plain http on the local network, anyone who can reach it can create accounts with fake money, and the phone's wallet is protected only by app storage (a real system would use a secure hardware counter). Real money also needs RBI/NPCI approval and a bank partner.
 
 ## How it works
 
@@ -112,7 +145,7 @@ Install the APK on two Android phones (or one phone + a laptop running `python -
 
 - [x] **Phase 1:** core engine (packet, crypto, error correction, modem, tests, benchmark)
 - [x] **Phase 2:** Flutter app with contact share, Wi-Fi share and offers
-- [ ] **Phase 3:** offline payment (wallet, tokens, sync, double-spend check)
+- [x] **Phase 3:** offline payment (wallet, bank certificates, sync, double-spend check)
 - [ ] **Phase 4:** attendance, tickets, door unlock, login/2FA
 - [ ] **Phase 5:** file transfer, emergency broadcast, ESP32 sensor demo, faster modem
 - [ ] **Phase 6:** auto fallback (sound / QR / BLE), real-device benchmarks, demo

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:soundlink/engine/engine.dart';
+import 'package:soundlink/ui/wallet_screen.dart' show parseRupees;
 import 'package:soundlink/ui/widgets.dart';
 
 void main() {
@@ -22,5 +23,15 @@ void main() {
     expect(find.text('Code: TEN'), findsOneWidget);
     expect(find.text('PAYMENT'), findsOneWidget);
     expect(find.textContaining('secret12'), findsNothing); // password is not shown on screen
+  });
+
+  test('rupee amounts are parsed into paise', () {
+    expect(parseRupees('25'), 2500);
+    expect(parseRupees('12.5'), 1250);
+    expect(parseRupees(' 0.05 '), 5);
+    expect(parseRupees('0'), isNull);
+    expect(parseRupees('-3'), isNull);
+    expect(parseRupees('1.234'), isNull);
+    expect(parseRupees('abc'), isNull);
   });
 }

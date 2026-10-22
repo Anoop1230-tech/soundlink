@@ -9,9 +9,14 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:node="remove" />
+    <!-- Talk to the demo bank (only for load / unload / sync). -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <!-- usesCleartextTraffic: the demo bank runs on a laptop over plain http on the local Wi-Fi.
+         A real deployment must use https and remove this. -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="SoundLink"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

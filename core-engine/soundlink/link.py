@@ -36,6 +36,10 @@ class SoundLink:
             sign_with=self.identity if sign else None,
             key=self.key if encrypt else None,
         )
+        return self.encode_bytes(data, repeat)
+
+    def encode_bytes(self, data: bytes, repeat: int = 1) -> np.ndarray:
+        """Play an already-built packet (e.g. a saved payment) again."""
         frames = [self.modem.encode_frame(c) for c in transport.split(data)]
         gap = np.zeros(int(0.1 * self.sample_rate), dtype=np.float32)
         parts: list[np.ndarray] = []

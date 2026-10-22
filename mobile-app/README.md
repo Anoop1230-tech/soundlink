@@ -7,6 +7,7 @@ Flutter app (Android) that sends and receives contacts, Wi-Fi networks, offers a
 - **Receive:** tap the big button to listen. Received items appear as cards with actions: save a contact (opens the phone's "new contact" screen), connect to Wi-Fi (Android asks to save the network), or copy a coupon code. PIN-locked items show an **Unlock** button.
 - **Send:** pick contact, Wi-Fi, offer or text, fill the form and tap **Send by sound**. Wi-Fi is PIN-locked by default.
 - **History:** everything sent and received on this phone.
+- **Wallet:** offline payments with demo money. Connect to the bank (`python -m soundbank serve` on a laptop), load money, then **Pay** (listen for a shop's request, confirm, play the payment, hear the receipt) or **Request money** (play a request, check the payment offline, play a receipt). **Sync** sends received payments to the bank.
 - **Settings:** sound mode (normal / fast / ultrasonic), volume, how many times to repeat, and this device's ID.
 
 Both phones must use the same sound mode.
@@ -21,13 +22,16 @@ lib/
 test/
   engine_test.dart    engine in a fake noisy room
   interop_test.dart   checks Dart against Python: same bytes, same keys, decodes Python's WAVs
+  payment_test.dart   payment rules + Python payment vectors
+  bank_e2e_test.dart  against a running bank (set SOUNDBANK_URL, skipped otherwise)
   fixtures/           made by core-engine/tools/make_fixtures.py
 ```
 
 - The device signing key is created on first launch and kept in `flutter_secure_storage` (Android Keystore).
 - The mic is opened in "unprocessed" mode with echo cancel, noise suppression and auto gain turned off, because voice processing removes our tones.
 - Sound is played as a 48 kHz WAV so Android doesn't compress it.
-- Permissions: microphone (only while listening) and Wi-Fi state (to add a received network). Location is removed from the manifest because adding a network doesn't need it.
+- Permissions: microphone (only while listening), Wi-Fi state (to add a received network) and internet (only for the bank). Location is removed from the manifest because adding a network doesn't need it.
+- Plain http is allowed (`usesCleartextTraffic`) so the phone can reach the demo bank on a laptop. Remove it and use https for anything real.
 
 ## Build and run
 

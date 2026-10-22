@@ -86,9 +86,44 @@ def main(out_dir: str) -> None:
     wav("ultrasonic_offer.wav", "ultrasonic", PacketType.OFFER, offer.to_bytes())
     big = bytes(rng.integers(0, 256, 520, dtype=np.uint8))  # random so it can't compress: 3 frames
     wav("fast_multichunk_noisy.wav", "fast", PacketType.TEXT, big, snr=10, sign=False)
+    pv = _payment_vectors(me)
+    wav("fast_payment_noisy.wav", "fast", PacketType.PAYMENT,
+        Packet.from_bytes(bytes.fromhex(pv["payment"])).payload, snr=10)
+    vectors["payment"] = pv
 
     (out / "vectors.json").write_text(json.dumps(vectors, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"wrote {len(vectors['wavs'])} WAVs and vectors.json to {out}")
+
+
+def _payment_vectors(payer: Identity) -> dict:
+    """Fixed bank / shop keys and a full request -> payment -> receipt exchange."""
+    from soundlink.payment import Cert, Merchant, Wallet, request_packet, tag
+
+    bank = Identity.from_seed(bytes(range(32, 64)))
+    shop = Identity.from_seed(bytes(range(64, 96)))
+    now = 1_800_000_000
+    cert = Cert.issue(bank, payer.public_key, 7, 150_000, now + 30 * 86400)
+    wallet = Wallet(bank.public_key)
+    wallet.install(cert, payer.public_key)
+    merchant = Merchant(bank.public_key)
+    req = merchant.new_request(2_550, "2 chai", now=now)
+    req_raw = request_packet(req, shop)
+    pay_raw = wallet.pay(Packet.from_bytes(req_raw), payer, now=now)
+    _, receipt, _ = merchant.accept(Packet.from_bytes(pay_raw), shop, pay_raw, now=now)
+    return {
+        "now": now,
+        "bank_seed": bank.seed.hex(),
+        "bank_pub": bank.public_key.hex(),
+        "shop_seed": shop.seed.hex(),
+        "shop_pub": shop.public_key.hex(),
+        "tag_payer": tag(payer.public_key).hex(),
+        "cert": cert.to_bytes().hex(),
+        "request_nonce": req.nonce.hex(),
+        "request": req_raw.hex(),
+        "payment": pay_raw.hex(),
+        "receipt_payload": receipt.to_bytes().hex(),
+        "receipt": merchant.receipt_packet(receipt, shop).hex(),
+    }
 
 
 if __name__ == "__main__":
