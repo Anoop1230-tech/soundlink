@@ -182,7 +182,14 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   Widget _resultCard(_Result r) {
     if (r.history != null) {
       final h = r.history!;
-      return ItemCard(type: h.type, item: r.item, signer: h.signer, time: h.time);
+      return ItemCard(
+        type: h.type,
+        item: r.item,
+        signer: h.signer,
+        time: h.time,
+        trusted: widget.store.isTrusted(h.signer),
+        onTrust: () => trustSender(context, widget.store, h.signer!).then((_) => mounted ? setState(() {}) : null),
+      );
     }
     if (r.received != null) {
       return Card(

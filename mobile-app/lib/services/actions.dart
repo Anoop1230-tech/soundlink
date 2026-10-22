@@ -4,9 +4,11 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart' as fc;
+import 'package:share_plus/share_plus.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 import '../engine/engine.dart';
+import 'files.dart';
 
 void showSnack(BuildContext context, String text) {
   ScaffoldMessenger.of(context)
@@ -66,5 +68,25 @@ Future<void> connectWifi(BuildContext context, Wifi w) async {
     await copyText(context, w.password, 'Could not add the network automatically. Password');
   } else {
     showSnack(context, 'Could not add the network automatically');
+  }
+}
+
+/// Download / unpack, check and save a received file, then offer to open or share it.
+Future<void> saveFile(BuildContext context, FileOffer offer) async {
+  showSnack(context, offer.mode == fileInline ? 'Saving…' : 'Downloading ${offer.name}…');
+  try {
+    final f = await saveOffer(offer);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('Saved ${f.uri.pathSegments.last} (checksum OK)'),
+        action: SnackBarAction(
+          label: 'Open / share',
+          onPressed: () => SharePlus.instance.share(ShareParams(files: [XFile(f.path, mimeType: offer.mime)])),
+        ),
+      ));
+  } catch (e) {
+    if (context.mounted) showSnack(context, 'Could not save: $e');
   }
 }

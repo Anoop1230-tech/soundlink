@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../engine/engine.dart';
 import '../services/actions.dart';
+import '../services/store.dart';
 
 IconData iconFor(int type) => switch (type) {
       PacketType.contact => Icons.person,
       PacketType.wifi => Icons.wifi,
       PacketType.offer => Icons.local_offer,
       PacketType.text => Icons.chat_bubble_outline,
+      PacketType.emergency => Icons.warning_amber,
+      PacketType.sensor => Icons.monitor_heart,
+      PacketType.fileHandshake => Icons.insert_drive_file,
       _ => Icons.help_outline,
     };
 
@@ -27,14 +31,30 @@ class ItemCard extends StatelessWidget {
   final DateTime time;
   final bool sent;
 
-  const ItemCard({super.key, required this.type, required this.item, this.signer, required this.time, this.sent = false});
+  /// For alerts: is the signer in the trusted list, and how to add it.
+  final bool trusted;
+  final VoidCallback? onTrust;
+
+  const ItemCard({
+    super.key,
+    required this.type,
+    required this.item,
+    this.signer,
+    required this.time,
+    this.sent = false,
+    this.trusted = false,
+    this.onTrust,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (title, lines, actions) = _content(context);
     final who = sent ? 'Sent' : (signer == null ? 'Unsigned sender' : 'From ${fingerprintOf(bytesFromHex(signer!))}');
+    final i = item;
+    final danger = i is Alert && i.severity == 2;
     return Card(
+      color: i is Alert && !sent ? (danger ? theme.colorScheme.errorContainer : theme.colorScheme.tertiaryContainer) : null,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
         child: Column(
@@ -105,6 +125,36 @@ class ItemCard extends StatelessWidget {
         ],
       );
     }
+    if (i is Alert) {
+      final exp = i.expires == 0 ? null : DateTime.fromMillisecondsSinceEpoch(i.expires * 1000);
+      final verified = sent || trusted;
+      return (
+        '${severityNames[i.severity]}: ${i.title}',
+        [
+          '${alertKinds[i.kind]}${i.area.isEmpty ? '' : ' ? ${i.area}'}',
+          if (i.message.isNotEmpty) i.message,
+          if (exp != null) i.expired() ? 'This alert has ended' : 'Until ${exp.toLocal().toString().substring(0, 16)}',
+          if (!sent) verified ? '✔ VERIFIED: from a trusted authority' : '⚠ NOT VERIFIED: anyone can play a sound. Check with officials.',
+        ],
+        [
+          if (!sent && !trusted && signer != null && onTrust != null)
+            TextButton.icon(onPressed: onTrust, icon: const Icon(Icons.verified_user), label: const Text('Trust sender')),
+          TextButton.icon(
+              onPressed: () => copyText(context, '${i.title}\n${i.message}', 'Alert'), icon: const Icon(Icons.copy), label: const Text('Copy')),
+        ],
+      );
+    }
+    if (i is SensorReport) {
+      return ('${i.name} (reading #${i.seq})', i.describe(), const <Widget>[]);
+    }
+    if (i is FileOffer) {
+      final kb = i.size < 1024 ? '${i.size} bytes' : '${(i.size / 1024).toStringAsFixed(1)} KB';
+      return (
+        i.name,
+        [kb, i.mode == fileInline ? 'Sent inside the sound' : 'Download over Wi-Fi from ${Uri.parse(i.url).host}'],
+        [if (!sent) TextButton.icon(onPressed: () => saveFile(context, i), icon: const Icon(Icons.download), label: const Text('Save'))],
+      );
+    }
     if (i is String) {
       return ('Message', [i], [TextButton.icon(onPressed: () => copyText(context, i, 'Text'), icon: const Icon(Icons.copy), label: const Text('Copy'))]);
     }
@@ -132,4 +182,25 @@ Future<String?> askPin(BuildContext context, {String title = 'Enter PIN'}) {
       ],
     ),
   );
+}
+
+/// Ask for a name and add the signer to the trusted alert senders.
+Future<void> trustSender(BuildContext context, AppStore store, String keyHex) async {
+  final c = TextEditingController();
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Trust this sender?'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Device ${fingerprintOf(bytesFromHex(keyHex))}\nOnly do this if you know it is an official source '
+            '(e.g. the ID was shown by your college or the district office).'),
+        TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'Name, e.g. District Office')),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Trust')),
+      ],
+    ),
+  );
+  if (name != null && name.isNotEmpty) await store.trust(keyHex, name);
 }

@@ -19,7 +19,15 @@ class HistoryScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               for (final h in store.history)
-                ItemCard(type: h.type, item: h.item, signer: h.signer, time: h.time, sent: h.sent),
+                ItemCard(
+                  type: h.type,
+                  item: h.item,
+                  signer: h.signer,
+                  time: h.time,
+                  sent: h.sent,
+                  trusted: store.isTrusted(h.signer),
+                  onTrust: h.signer == null ? null : () => trustSender(context, store, h.signer!),
+                ),
             ],
           );
         },
@@ -72,6 +80,18 @@ class SettingsScreen extends StatelessWidget {
                 label: '${store.repeat}x',
                 onChanged: (v) => store.repeat = v.round(),
               ),
+              const Divider(),
+              Text('Trusted alert senders', style: Theme.of(context).textTheme.titleMedium),
+              const Text('Emergency alerts from these devices are shown as VERIFIED.'),
+              if (store.trusted.isEmpty) const Text('None yet. Tap "Trust sender" on an alert from an official source.'),
+              for (final e in store.trusted.entries)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.verified_user),
+                  title: Text(e.value),
+                  subtitle: Text(fingerprintOf(bytesFromHex(e.key))),
+                  trailing: IconButton(tooltip: 'Remove', icon: const Icon(Icons.delete_outline), onPressed: () => store.untrust(e.key)),
+                ),
               const Divider(),
               ListTile(
                 contentPadding: EdgeInsets.zero,

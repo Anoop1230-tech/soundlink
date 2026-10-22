@@ -20,16 +20,18 @@ CHUNK_DATA = MAX_FRAME_DATA - CHUNK_HEADER.size
 MAX_CHUNKS = 255
 
 
-def split(data: bytes, transfer_id: int | None = None) -> list[bytes]:
+def split(data: bytes, transfer_id: int | None = None, frame_size: int = MAX_FRAME_DATA) -> list[bytes]:
+    """frame_size: the modem's biggest frame (profile.max_frame)."""
     if not data:
         raise ValueError("nothing to send")
-    total = -(-len(data) // CHUNK_DATA)
+    chunk = frame_size - CHUNK_HEADER.size
+    total = -(-len(data) // chunk)
     if total > MAX_CHUNKS:
         raise ValueError(f"data too large ({len(data)} bytes)")
     if transfer_id is None:
         transfer_id = int.from_bytes(os.urandom(2), "big")
     return [
-        CHUNK_HEADER.pack(transfer_id, i, total) + data[i * CHUNK_DATA : (i + 1) * CHUNK_DATA]
+        CHUNK_HEADER.pack(transfer_id, i, total) + data[i * chunk : (i + 1) * chunk]
         for i in range(total)
     ]
 

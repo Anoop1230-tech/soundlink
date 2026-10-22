@@ -4,7 +4,7 @@ Send data between devices using sound. No internet, no Bluetooth, no pairing.
 
 SoundLink is a secure, offline platform for sharing small pieces of data through a speaker and a microphone: payments, Wi-Fi passwords, contacts, attendance, tickets, door unlock, login, emergency alerts and more. Every feature uses the same core engine; only the data inside the packet changes.
 
-> Status: **Phase 4 done.** Core engine (Python), Android app (Flutter) that shares contacts, Wi-Fi and offers by sound, **offline payments** with demo money, and **attendance, tickets, door unlock and passwordless login**.
+> Status: **Phase 5 done.** Core engine (Python), Android app (Flutter), offline payments, attendance / tickets / doors / login, and now a **10x faster turbo mode**, **file sharing**, **emergency alerts** and an **ESP32 sensor** that talks to the app.
 
 ## Project layout
 
@@ -12,7 +12,8 @@ SoundLink is a secure, offline platform for sharing small pieces of data through
 |---|---|
 | `core-engine/` | Python engine and command line tool (see below) |
 | `mobile-app/` | Flutter Android app with a Dart copy of the engine ([README](mobile-app/README.md)) |
-| `backend/` | SoundBank, a demo bank server for offline payments (FastAPI + SQLite) |
+| `backend/` | SoundBank, a demo bank server for offline payments and the login demo site (FastAPI + SQLite) |
+| `firmware/esp32/` | C library + Arduino sketch: an ESP32 with a speaker sends signed sensor readings ([README](firmware/esp32/README.md)) |
 
 ## Offline payments (demo money)
 
@@ -107,6 +108,7 @@ The public key and signature are only present if the packet is signed. Packet ty
 | `normal` | 1.5-5.5 kHz (audible) | default, most reliable |
 | `fast` | 1.5-9.5 kHz (audible) | quiet rooms, about 2x faster |
 | `ultrasonic` | 18-20 kHz (almost silent) | attendance, beacons, offers |
+| `turbo` | 2.0-6.5 kHz, OFDM (96 tones at once) | files and long messages, phones close together |
 
 ## Benchmark (simulated room with echo and clock drift)
 
@@ -117,6 +119,7 @@ The public key and signature are only present if the packet is signed. Packet ty
 | normal | 11.0 s | 18 B/s | 100% |
 | fast | 5.8 s | 34 B/s | 100% |
 | ultrasonic | 19.0 s | 10.5 B/s | 100% |
+| turbo | 1.1 s | 178 B/s (286 B/s at 900 bytes) | needs about 15 dB or better |
 
 For comparison, ggwave does about 8-16 B/s. These numbers come from the simulator; real speaker and mic results will be added after testing on devices.
 
@@ -165,11 +168,32 @@ Install the APK on two Android phones (or one phone + a laptop running `python -
 - Key files from `keygen` are stored unencrypted in this prototype. The app keeps its key in Android Keystore-backed secure storage.
 - Payments use dummy money only. Real money needs RBI/NPCI approval and a bank partner.
 
+## Turbo mode, files, alerts and sensors (Phase 5)
+
+**Turbo** uses OFDM: 96 tones play at the same time and each one carries 2 bits in the change of its phase (DQPSK), with a cyclic prefix that soaks up room echo. It sends 900 bytes in 3.1 s, where `fast` needs 18 s, but it needs a cleaner channel, so the phones should be close.
+
+| Feature | How it works |
+|---|---|
+| **Files** | Small files (up to 1.5 KB, or 3.9 KB in turbo) go inside the sound. Bigger files: the sender serves the file from a tiny web server on the local Wi-Fi at a random secret address, and only the link, size and SHA-256 go by sound. The receiver checks the checksum before saving, and file names are cleaned so they can't escape the download folder. |
+| **Emergency alerts** | Signed alert with severity, type, area and end time (works in Hindi and other scripts). Phones show **VERIFIED** only if the sender is in their trusted list; anyone can play a sound, so unknown senders get a clear warning instead. A WAV can be played through a loudspeaker or FM radio. |
+| **Sensors** | Signed readings (temperature, BP, SpO2, PM2.5, …) with a counter. The ESP32 library sends them with just a speaker. |
+
+```powershell
+python -m soundlink alert "Flood warning" "Move to higher ground" --severity danger --kind flood --area "Ward 12" --key-file gov.key
+python -m soundlink alert "Cyclone" --out cyclone.wav       # for a loudspeaker / radio
+python -m soundlink sendfile notes.pdf                      # big file: link by sound, file over Wi-Fi
+python -m soundlink sendfile photo.jpg --inline --profile turbo
+python -m soundlink getfile --folder received
+python -m soundlink bench --profiles fast turbo
+```
+
+In the app, **Send** has new **File** and **Emergency alert** options, the **Receive** tab shows alert, sensor and file cards, and **Settings** has the turbo mode and the list of trusted alert senders.
+
 ## Roadmap
 
 - [x] **Phase 1:** core engine (packet, crypto, error correction, modem, tests, benchmark)
 - [x] **Phase 2:** Flutter app with contact share, Wi-Fi share and offers
 - [x] **Phase 3:** offline payment (wallet, bank certificates, sync, double-spend check)
 - [x] **Phase 4:** attendance, tickets, door unlock, login/2FA
-- [ ] **Phase 5:** file transfer, emergency broadcast, ESP32 sensor demo, faster modem
+- [x] **Phase 5:** file transfer, emergency broadcast, ESP32 sensor demo, faster (turbo OFDM) modem
 - [ ] **Phase 6:** auto fallback (sound / QR / BLE), real-device benchmarks, demo

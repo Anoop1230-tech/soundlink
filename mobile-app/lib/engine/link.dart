@@ -25,7 +25,7 @@ class SoundLink {
   }
 
   Float32List encodeBytes(List<int> data, {int repeat = 1}) {
-    final frames = [for (final c in transport.split(data)) modem.encodeFrame(c)];
+    final frames = [for (final c in transport.split(data, frameSize: modem.profile.maxFrame)) modem.encodeFrame(c)];
     final gap = (0.1 * sampleRate).toInt();
     final reps = repeat < 1 ? 1 : repeat;
     var total = 0;

@@ -109,7 +109,8 @@ void main() {
         final audio = m.encodeFrame(data);
         expect((audio.length / 48000 - m.frameDuration(120)).abs(), lessThan(0.01));
         final d = Demodulator(profiles[name]!);
-        final frames = [...d.feed(room(audio, snrDb: 8)), ...d.flush()];
+        // turbo trades noise tolerance for ~10x speed
+        final frames = [...d.feed(room(audio, snrDb: name == 'turbo' ? 18 : 8)), ...d.flush()];
         expect(frames.map((f) => f.data).toList(), [data]);
       });
     }

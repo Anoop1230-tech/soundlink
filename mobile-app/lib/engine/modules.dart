@@ -8,6 +8,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'extras.dart';
 import 'packet.dart';
 
 const int maxField = 255;
@@ -245,7 +246,7 @@ class Offer {
   String toString() => 'Offer($title${shop.isEmpty ? '' : ' @ $shop'})';
 }
 
-/// Returns a Contact / Wifi / Offer, a String for TEXT, or null for other types.
+/// Returns a Contact / Wifi / Offer / Alert / SensorReport / FileOffer, a String for TEXT, or null for other types.
 Object? parsePayload(int type, List<int> payload) {
   switch (type) {
     case PacketType.text:
@@ -260,6 +261,12 @@ Object? parsePayload(int type, List<int> payload) {
       return Wifi.fromBytes(payload);
     case PacketType.offer:
       return Offer.fromBytes(payload);
+    case PacketType.emergency:
+      return Alert.fromBytes(payload);
+    case PacketType.sensor:
+      return SensorReport.fromBytes(payload);
+    case PacketType.fileHandshake:
+      return FileOffer.parse(payload);
   }
   return null;
 }

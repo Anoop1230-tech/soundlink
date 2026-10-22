@@ -91,9 +91,30 @@ def main(out_dir: str) -> None:
         Packet.from_bytes(bytes.fromhex(pv["payment"])).payload, snr=10)
     vectors["payment"] = pv
     vectors["access"] = _access_vectors(me)
+    vectors["extras"] = _extra_vectors()
+    # turbo: one clean, one through the noisy room, and one multi-chunk inline file
+    from soundlink.extras import FileOffer
+    wav("turbo_text.wav", "turbo", PacketType.TEXT, "turbo from python ".encode() * 20, sign=False)
+    wav("turbo_contact_noisy.wav", "turbo", PacketType.CONTACT, contact.to_bytes(), snr=20)
+    blob = bytes(rng.integers(0, 256, 2400, dtype=np.uint8))
+    wav("turbo_file_noisy.wav", "turbo", PacketType.FILE_HANDSHAKE, FileOffer.inline("blob.bin", blob).to_bytes(), snr=20)
+    from soundlink.modem import pn_bytes, Modem as _M
+    vectors["ofdm"] = {"pn_ref": pn_bytes(0x51D0F00D, 16).hex(), "pn_white": pn_bytes(0x0BADC0DE, 16).hex(),
+                       "frame_head": _M("turbo", volume=0.5).encode_frame(b"hi")[7680:7700].tolist()}
 
     (out / "vectors.json").write_text(json.dumps(vectors, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"wrote {len(vectors['wavs'])} WAVs and vectors.json to {out}")
+
+
+def _extra_vectors() -> dict:
+    from soundlink.extras import Alert, FileOffer, SensorReport
+
+    a = Alert("Flood warning", "Move to higher ground. \u092c\u093e\u0922\u093c", 2, 1, "Ward 12", 1_800_000_000, 1_800_003_600)
+    s = SensorReport("BP meter", ((5, 121), (6, 79), (3, 72.5), (1, -4.25)), seq=7)
+    f = FileOffer.link("notes.pdf", 1234, bytes(range(32)), "http://192.168.1.5:8123/f/abc/notes.pdf", "application/pdf")
+    i = FileOffer.inline("hi.txt", b"hello file", "text/plain")
+    return {"alert": a.to_bytes().hex(), "sensor": s.to_bytes().hex(), "file_link": f.to_bytes().hex(),
+            "file_inline": i.to_bytes().hex()}
 
 
 def _access_vectors(phone: Identity) -> dict:

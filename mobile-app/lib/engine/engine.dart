@@ -3,6 +3,7 @@ library;
 
 export 'access.dart';
 export 'crc.dart';
+export 'extras.dart';
 export 'crypto.dart';
 export 'fec.dart' show FecError, rsEncode, rsDecode, encodedLen;
 export 'link.dart';

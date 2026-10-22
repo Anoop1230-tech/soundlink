@@ -60,9 +60,10 @@ def test_clean_round_trip(name):
 
 @pytest.mark.parametrize("name", list(PROFILES))
 def test_noisy_room(name):
-    data = random_bytes(MAX_FRAME_DATA)
+    data = random_bytes(PROFILES[name].max_frame)
     audio = Modem(name).encode_frame(data)
-    x = channel(audio, 48000, snr_db=5, rng=rng)
+    # turbo trades noise tolerance for ~10x speed
+    x = channel(audio, 48000, snr_db=12 if name == "turbo" else 5, rng=rng)
     demod = Demodulator(name)
     assert [f.data for f in demod.feed(x) + demod.flush()] == [data]
 

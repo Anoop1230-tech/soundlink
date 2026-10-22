@@ -5,7 +5,7 @@ Flutter app (Android) that sends and receives contacts, Wi-Fi networks, offers a
 ## Screens
 
 - **Receive:** tap the big button to listen. Received items appear as cards with actions: save a contact (opens the phone's "new contact" screen), connect to Wi-Fi (Android asks to save the network), or copy a coupon code. PIN-locked items show an **Unlock** button.
-- **Send:** pick contact, Wi-Fi, offer or text, fill the form and tap **Send by sound**. Wi-Fi is PIN-locked by default.
+- **Send:** pick contact, Wi-Fi, offer, text, **file** or **emergency alert**, fill the form and tap **Send by sound**. Wi-Fi is PIN-locked by default. Big files are served over the local Wi-Fi and only the link goes by sound.
 - **Access:** attendance (student / teacher), tickets (get, show at gate, organize an event), doors (unlock, ask to be added, make this phone a door) and website login.
 - **History:** everything sent and received on this phone.
 - **Wallet:** offline payments with demo money. Connect to the bank (`python -m soundbank serve` on a laptop), load money, then **Pay** (listen for a shop's request, confirm, play the payment, hear the receipt) or **Request money** (play a request, check the payment offline, play a receipt). **Sync** sends received payments to the bank.
@@ -25,6 +25,8 @@ test/
   interop_test.dart   checks Dart against Python: same bytes, same keys, decodes Python's WAVs
   payment_test.dart   payment rules + Python payment vectors
   access_test.dart    attendance, tickets, doors, login + Python vectors
+  turbo_extras_test.dart  turbo (OFDM) modem, alerts, sensors, files + Python vectors
+  file_share_test.dart    the phone's file server
   bank_e2e_test.dart  against a running bank and login site (set SOUNDBANK_URL, skipped otherwise)
   fixtures/           made by core-engine/tools/make_fixtures.py
 ```

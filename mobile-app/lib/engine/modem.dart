@@ -14,6 +14,7 @@ import 'fec.dart' as fec;
 const int tones = 16;
 const int lenField = 2;
 const int lenNsym = 6;
+const int lenNsymDefault = lenNsym;
 const int maxFrameData = 240;
 const double skipFront = 0.20;
 const double skipBack = 0.10;
@@ -34,6 +35,13 @@ class Profile {
   final int sampleRate;
   final double threshold;
 
+  /// OFDM-DQPSK settings (null for MFSK profiles). See modem.py.
+  final int? firstBin;
+  final int carriers;
+  final int fft;
+  final int cp;
+  final int maxFrame;
+
   const Profile(
     this.name,
     this.label, {
@@ -46,12 +54,36 @@ class Profile {
     this.gapS = 0.03,
     this.sampleRate = 48000,
     this.threshold = 0.3,
-  });
+    this.maxFrame = maxFrameData,
+  })  : firstBin = null,
+        carriers = 0,
+        fft = 0,
+        cp = 0;
 
-  int get symbolLen => (symbolS * sampleRate).round();
+  const Profile.ofdm(
+    this.name,
+    this.label, {
+    required int this.firstBin,
+    required this.carriers,
+    this.fft = 1024,
+    this.cp = 768,
+    required this.nsym,
+    this.preambleS = 0.16,
+    this.gapS = 0.03,
+    this.sampleRate = 48000,
+    this.threshold = 0.3,
+    this.maxFrame = 960,
+  })  : baseFreq = 0,
+        spacing = sampleRate / fft,
+        groups = 0,
+        symbolS = (fft + cp) / sampleRate;
+
+  bool get isOfdm => firstBin != null;
+  int get symbolLen => isOfdm ? fft + cp : (symbolS * sampleRate).round();
   int get numTones => groups * tones;
-  double get lowFreq => baseFreq;
-  double get highFreq => baseFreq + spacing * (numTones - 1);
+  int get bytesPerSymbol => carriers ~/ 4;
+  double get lowFreq => isOfdm ? firstBin! * spacing : baseFreq;
+  double get highFreq => isOfdm ? (firstBin! + carriers - 1) * spacing : baseFreq + spacing * (numTones - 1);
 }
 
 const Map<String, Profile> profiles = {
@@ -60,6 +92,7 @@ const Map<String, Profile> profiles = {
   'fast': Profile('fast', 'Fast (quiet rooms)', baseFreq: 1500, spacing: 125, groups: 4, symbolS: 0.024, nsym: 32),
   'ultrasonic': Profile('ultrasonic', 'Ultrasonic (almost silent)',
       baseFreq: 18000, spacing: 62.5, groups: 2, symbolS: 0.048, nsym: 16),
+  'turbo': Profile.ofdm('turbo', 'Turbo (10x faster, phones close)', firstBin: 43, carriers: 96, cp: 768, nsym: 64),
 };
 
 class Frame {
@@ -152,22 +185,75 @@ class BandFilter {
   }
 }
 
-class Modem {
+/// Common interface for both modulations.
+abstract class Modem {
+  Profile get profile;
+  double get volume;
+  int get L;
+  Float64List get chirp;
+  int get gapLen;
+  int get tailLen;
+  int get leadLen;
+  int get lenNsym;
+  int get lenSymbols;
+  int blockSymbols(int nbytes);
+  Float32List encodeFrame(List<int> data);
+
+  /// Demodulate [nbytes] bytes starting at sample [start]: (bytes, per-byte confidence).
+  (Uint8List, List<double>) demodBlock(Float64List x, int start, int nbytes);
+
+  int frameSymbols(int nbytes) => lenSymbols + blockSymbols(fec.encodedLen(nbytes, profile.nsym));
+  double frameDuration(int nbytes) =>
+      (chirp.length + gapLen + leadLen + frameSymbols(nbytes) * L + tailLen) / profile.sampleRate;
+
+  factory Modem(Profile p, {double volume = 0.5}) => p.isOfdm ? OfdmModem(p, volume: volume) : FskModem(p, volume: volume);
+}
+
+Float64List makeChirp(Profile p) {
+  final sr = p.sampleRate;
+  final n = (p.preambleS * sr).toInt();
+  final f0 = p.lowFreq - p.spacing, f1 = p.highFreq + p.spacing;
+  final chirp = Float64List(n);
+  for (var i = 0; i < n; i++) {
+    final t = i / sr;
+    chirp[i] = math.sin(2 * math.pi * (f0 * t + (f1 - f0) / (2 * p.preambleS) * t * t));
+  }
+  final taper = math.max(1, n ~/ 20);
+  final tu = _linspace(0, 1, taper), td = _linspace(1, 0, taper);
+  for (var i = 0; i < taper; i++) {
+    chirp[i] *= tu[i];
+    chirp[n - taper + i] *= td[i];
+  }
+  return chirp;
+}
+
+class FskModem implements Modem {
+  @override
   final Profile profile;
+  @override
   final double volume;
+  @override
   late final int L;
   late final Float64List freqs;
   late final List<Float64List> _tones;
+  @override
   late final Float64List chirp;
+  @override
   late final int gapLen;
+  @override
   late final int tailLen;
+  @override
+  int get leadLen => 0;
+  @override
+  int get lenNsym => lenNsymDefault;
   late final int _a0;
   late final int _a1;
   late final List<Float64List> _anaRe;
   late final List<Float64List> _anaIm;
+  @override
   late final int lenSymbols;
 
-  Modem(this.profile, {this.volume = 0.5}) {
+  FskModem(this.profile, {this.volume = 0.5}) {
     if (!(volume > 0 && volume <= 1)) throw ArgumentError('volume must be in (0, 1]');
     final p = profile;
     final sr = p.sampleRate;
@@ -187,19 +273,7 @@ class Modem {
         Float64List.fromList([for (var i = 0; i < L; i++) math.sin(2 * math.pi * f * (i / sr)) * env[i]]),
     ];
 
-    final n = (p.preambleS * sr).toInt();
-    final f0 = p.lowFreq - p.spacing, f1 = p.highFreq + p.spacing;
-    chirp = Float64List(n);
-    for (var i = 0; i < n; i++) {
-      final t = i / sr;
-      chirp[i] = math.sin(2 * math.pi * (f0 * t + (f1 - f0) / (2 * p.preambleS) * t * t));
-    }
-    final taper = math.max(1, n ~/ 20);
-    final tu = _linspace(0, 1, taper), td = _linspace(1, 0, taper);
-    for (var i = 0; i < taper; i++) {
-      chirp[i] *= tu[i];
-      chirp[n - taper + i] *= td[i];
-    }
+    chirp = makeChirp(p);
     gapLen = (p.gapS * sr).toInt();
     tailLen = (tailS * sr).toInt();
 
@@ -222,12 +296,21 @@ class Modem {
     lenSymbols = _symbolsFor(lenField + lenNsym, p.groups);
   }
 
-  // ---------- sending ----------
+  @override
+  int blockSymbols(int nbytes) => _symbolsFor(nbytes, profile.groups);
 
-  int frameSymbols(int nbytes) => lenSymbols + _symbolsFor(fec.encodedLen(nbytes, profile.nsym), profile.groups);
+  @override
+  int frameSymbols(int nbytes) => lenSymbols + blockSymbols(fec.encodedLen(nbytes, profile.nsym));
 
+  @override
   double frameDuration(int nbytes) =>
       (chirp.length + gapLen + frameSymbols(nbytes) * L + tailLen) / profile.sampleRate;
+
+  @override
+  (Uint8List, List<double>) demodBlock(Float64List x, int start, int nbytes) {
+    final (values, conf) = demodulate(x, start, blockSymbols(nbytes));
+    return (_valuesToBytes(values, nbytes), _byteConfidence(conf, nbytes));
+  }
 
   void _writeSymbols(Float32List out, int offset, List<int> values) {
     final g = profile.groups;
@@ -243,9 +326,10 @@ class Modem {
     }
   }
 
+  @override
   Float32List encodeFrame(List<int> data) {
-    if (data.isEmpty || data.length > maxFrameData) {
-      throw ArgumentError('frame data must be 1..$maxFrameData bytes');
+    if (data.isEmpty || data.length > profile.maxFrame) {
+      throw ArgumentError('frame data must be 1..${profile.maxFrame} bytes');
     }
     final g = profile.groups;
     final lenBlock = fec.rsEncode([data.length >> 8, data.length & 0xFF], lenNsym);
@@ -299,6 +383,206 @@ class Modem {
       }
     }
     return (values, conf);
+  }
+}
+
+// ---------- OFDM-DQPSK (turbo) ----------
+
+const gray = [0, 1, 3, 2];
+const refSeed = 0x51D0F00D;
+const whitenSeed = 0x0BADC0DE;
+const ofdmRms = 0.30;
+const guard = 64;
+
+/// xorshift32, the same in Python, Dart and C.
+Uint8List pnBytes(int seed, int n) {
+  final out = Uint8List(n);
+  var x = seed & 0xFFFFFFFF;
+  for (var i = 0; i < n; i++) {
+    x ^= (x << 13) & 0xFFFFFFFF;
+    x ^= x >> 17;
+    x ^= (x << 5) & 0xFFFFFFFF;
+    out[i] = x & 0xFF;
+  }
+  return out;
+}
+
+class OfdmModem implements Modem {
+  @override
+  final Profile profile;
+  @override
+  final double volume;
+  @override
+  late final int L;
+  @override
+  late final Float64List chirp;
+  @override
+  late final int gapLen;
+  @override
+  late final int tailLen;
+  @override
+  late final int leadLen;
+  @override
+  late final int lenNsym;
+  @override
+  late final int lenSymbols;
+  late final List<int> ref;
+  late final Float64List _cos; // cos(2*pi*j/fft)
+  late final Float64List _sin;
+
+  OfdmModem(this.profile, {this.volume = 0.5}) {
+    final p = profile;
+    if (!(volume > 0 && volume <= 1)) throw ArgumentError('volume must be in (0, 1]');
+    if (p.carriers % 4 != 0 || p.cp <= guard || p.highFreq + 2 * p.spacing >= p.sampleRate / 2) {
+      throw ArgumentError('bad OFDM profile');
+    }
+    L = p.fft + p.cp;
+    chirp = makeChirp(p);
+    gapLen = (p.gapS * p.sampleRate).toInt();
+    tailLen = (tailS * p.sampleRate).toInt();
+    leadLen = L;
+    lenNsym = p.bytesPerSymbol - lenField;
+    ref = [for (final b in pnBytes(refSeed, p.carriers)) b & 3];
+    _cos = Float64List(p.fft);
+    _sin = Float64List(p.fft);
+    for (var j = 0; j < p.fft; j++) {
+      _cos[j] = math.cos(2 * math.pi * j / p.fft);
+      _sin[j] = math.sin(2 * math.pi * j / p.fft);
+    }
+    lenSymbols = blockSymbols(lenField + lenNsym);
+  }
+
+  @override
+  int blockSymbols(int nbytes) => (nbytes + profile.bytesPerSymbol - 1) ~/ profile.bytesPerSymbol;
+
+  @override
+  int frameSymbols(int nbytes) => lenSymbols + blockSymbols(fec.encodedLen(nbytes, profile.nsym));
+
+  @override
+  double frameDuration(int nbytes) =>
+      (chirp.length + gapLen + leadLen + frameSymbols(nbytes) * L + tailLen) / profile.sampleRate;
+
+  List<List<int>> _blockPhases(List<int> data, List<int> phases) {
+    final k = profile.carriers;
+    final w = pnBytes(whitenSeed, data.length);
+    final dib = <int>[];
+    for (var i = 0; i < data.length; i++) {
+      final b = data[i] ^ w[i];
+      dib..add((b >> 6) & 3)..add((b >> 4) & 3)..add((b >> 2) & 3)..add(b & 3);
+    }
+    while (dib.length % k != 0) {
+      dib.add(0);
+    }
+    final out = <List<int>>[];
+    var ph = phases;
+    for (var s = 0; s < dib.length; s += k) {
+      ph = [for (var c = 0; c < k; c++) (ph[c] + gray[dib[s + c]]) % 4];
+      out.add(ph);
+    }
+    return out;
+  }
+
+  /// x[n] = sum_c cos(2*pi*bin_c*n/fft + pi/2*phase_c), n = -cp .. fft-1.
+  void _symbol(List<int> phases, Float64List out, int offset) {
+    final p = profile, n0 = p.fft;
+    for (var c = 0; c < p.carriers; c++) {
+      final bin = p.firstBin! + c;
+      // cos(a + q*pi/2) = cos(a), -sin(a), -cos(a), sin(a) for q = 0..3
+      final q = phases[c];
+      for (var i = 0; i < L; i++) {
+        final j = ((i - p.cp) * bin) % n0;
+        final idx = j < 0 ? j + n0 : j;
+        out[offset + i] += switch (q) { 0 => _cos[idx], 1 => -_sin[idx], 2 => -_cos[idx], _ => _sin[idx] };
+      }
+    }
+  }
+
+  @override
+  Float32List encodeFrame(List<int> data) {
+    final p = profile;
+    if (data.isEmpty || data.length > p.maxFrame) throw ArgumentError('frame data must be 1..${p.maxFrame} bytes');
+    final lenBlock = fec.rsEncode([data.length >> 8, data.length & 0xFF], lenNsym);
+    final body = fec.rsEncode(data, p.nsym);
+    final phases = <List<int>>[ref];
+    phases.addAll(_blockPhases(lenBlock, phases.last));
+    phases.addAll(_blockPhases(body, phases.last));
+    final sig = Float64List(phases.length * L);
+    for (var s = 0; s < phases.length; s++) {
+      _symbol(phases[s], sig, s * L);
+    }
+    var pow = 0.0;
+    for (final v in sig) {
+      pow += v * v;
+    }
+    final scale = ofdmRms / math.sqrt(pow / sig.length);
+    final out = Float32List(chirp.length + gapLen + sig.length + tailLen);
+    for (var i = 0; i < chirp.length; i++) {
+      out[i] = chirp[i] * volume;
+    }
+    final o = chirp.length + gapLen;
+    for (var i = 0; i < sig.length; i++) {
+      out[o + i] = (sig[i] * scale).clamp(-1.0, 1.0) * volume;
+    }
+    return out;
+  }
+
+  /// Spectrum of one symbol at the data bins, corrected to symbol-start phase.
+  (Float64List, Float64List) _spectrum(Float64List x, int symStart) {
+    final p = profile;
+    final off = p.cp - guard;
+    final re = Float64List(p.fft), im = Float64List(p.fft);
+    re.setRange(0, p.fft, x, symStart + off);
+    _fft(re, im, false);
+    final yr = Float64List(p.carriers), yi = Float64List(p.carriers);
+    for (var c = 0; c < p.carriers; c++) {
+      final bin = p.firstBin! + c;
+      // multiply by exp(2j*pi*bin*(off-cp)/fft)
+      final a = 2 * math.pi * bin * (off - p.cp) / p.fft;
+      final cr = math.cos(a), ci = math.sin(a);
+      yr[c] = re[bin] * cr - im[bin] * ci;
+      yi[c] = re[bin] * ci + im[bin] * cr;
+    }
+    return (yr, yi);
+  }
+
+  @override
+  (Uint8List, List<double>) demodBlock(Float64List x, int start, int nbytes) {
+    final p = profile, k = p.carriers;
+    final count = blockSymbols(nbytes);
+    var (pr, pi) = _spectrum(x, start - L);
+    final dib = <int>[];
+    final conf = <double>[];
+    for (var s = 0; s < count; s++) {
+      final (cr, ci) = _spectrum(x, start + s * L);
+      final zr = Float64List(k), zi = Float64List(k), mag = Float64List(k);
+      for (var c = 0; c < k; c++) {
+        zr[c] = cr[c] * pr[c] + ci[c] * pi[c];
+        zi[c] = ci[c] * pr[c] - cr[c] * pi[c];
+        mag[c] = math.sqrt(zr[c] * zr[c] + zi[c] * zi[c]);
+      }
+      final sorted = List<double>.of(mag)..sort();
+      final med = sorted.length.isOdd ? sorted[k ~/ 2] : (sorted[k ~/ 2 - 1] + sorted[k ~/ 2]) / 2;
+      for (var c = 0; c < k; c++) {
+        final ang = math.atan2(zi[c], zr[c]);
+        var q = (ang / (math.pi / 2)).round() % 4;
+        if (q < 0) q += 4;
+        var e = ang - q * math.pi / 2;
+        e = math.atan2(math.sin(e), math.cos(e)).abs();
+        final rel = math.min(1.0, mag[c] / (med + 1e-12));
+        dib.add(gray[q]);
+        conf.add(((math.pi / 4 - e) / (math.pi / 4)) * rel);
+      }
+      pr = cr;
+      pi = ci;
+    }
+    final w = pnBytes(whitenSeed, nbytes);
+    final out = Uint8List(nbytes);
+    final bc = <double>[];
+    for (var i = 0; i < nbytes; i++) {
+      out[i] = ((dib[4 * i] << 6) | (dib[4 * i + 1] << 4) | (dib[4 * i + 2] << 2) | dib[4 * i + 3]) ^ w[i];
+      bc.add(1.0 + [conf[4 * i], conf[4 * i + 1], conf[4 * i + 2], conf[4 * i + 3]].reduce(math.min));
+    }
+    return (out, bc);
   }
 }
 
@@ -490,27 +774,27 @@ class Demodulator {
   (Frame?, int)? _tryDecode(int p, double score) {
     final mod = modem, prof = profile;
     final skipOnFail = p + mod.chirp.length;
-    final ds = p + mod.chirp.length + mod.gapLen;
+    final ds = p + mod.chirp.length + mod.gapLen + mod.leadLen;
     final x = _buf.view;
     if (x.length < ds + mod.lenSymbols * mod.L) return null;
-    var (values, conf) = mod.demodulate(x, ds, mod.lenSymbols);
-    const n = lenField + lenNsym;
+    final n = lenField + mod.lenNsym;
     int length;
     try {
-      final (lb, _) = fec.rsDecode(_valuesToBytes(values, n), lenNsym, _byteConfidence(conf, n));
+      final (raw, conf) = mod.demodBlock(x, ds, n);
+      final (lb, _) = fec.rsDecode(raw, mod.lenNsym, conf);
       length = (lb[0] << 8) | lb[1];
     } on fec.FecError {
       return (null, skipOnFail);
     }
-    if (length <= 0 || length > maxFrameData) return (null, skipOnFail);
+    if (length <= 0 || length > prof.maxFrame) return (null, skipOnFail);
 
     final bodyLen = fec.encodedLen(length, prof.nsym);
-    final nb = _symbolsFor(bodyLen, prof.groups);
+    final nb = mod.blockSymbols(bodyLen);
     final end = ds + (mod.lenSymbols + nb) * mod.L;
     if (x.length < end) return null;
-    (values, conf) = mod.demodulate(x, ds + mod.lenSymbols * mod.L, nb);
+    final (raw, conf) = mod.demodBlock(x, ds + mod.lenSymbols * mod.L, bodyLen);
     try {
-      final (data, corrected) = fec.rsDecode(_valuesToBytes(values, bodyLen), prof.nsym, _byteConfidence(conf, bodyLen));
+      final (data, corrected) = fec.rsDecode(raw, prof.nsym, conf);
       final sorted = List<double>.of(conf)..sort();
       final mid = sorted.length ~/ 2;
       final quality = sorted.length.isOdd ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;

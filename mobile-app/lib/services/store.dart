@@ -126,6 +126,25 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Public keys (hex) of authorities whose emergency alerts are shown as VERIFIED.
+  Map<String, String> get trusted {
+    final raw = _prefs.getString('trusted_v1');
+    if (raw == null) return {};
+    return Map<String, String>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<void> trust(String keyHex, String name) async {
+    await _prefs.setString('trusted_v1', jsonEncode({...trusted, keyHex: name}));
+    notifyListeners();
+  }
+
+  Future<void> untrust(String keyHex) async {
+    await _prefs.setString('trusted_v1', jsonEncode({...trusted}..remove(keyHex)));
+    notifyListeners();
+  }
+
+  bool isTrusted(String? keyHex) => keyHex != null && trusted.containsKey(keyHex);
+
   /// "My card" that is pre-filled on the contact screen.
   Contact? get myCard {
     final raw = _prefs.getString('my_card');

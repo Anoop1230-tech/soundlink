@@ -9,7 +9,7 @@ import numpy as np
 
 from . import transport
 from .crypto import Identity
-from .modem import Demodulator, Frame, Modem, Profile
+from .modem import Demodulator, Frame, Modem, OfdmProfile, Profile
 from .packet import Packet, PacketError, ReplayGuard
 
 
@@ -18,7 +18,7 @@ class SoundLink:
 
     def __init__(
         self,
-        profile: Profile | str = "normal",
+        profile: Profile | OfdmProfile | str = "normal",
         identity: Identity | None = None,
         key: bytes | None = None,
         volume: float = 0.5,
@@ -40,7 +40,7 @@ class SoundLink:
 
     def encode_bytes(self, data: bytes, repeat: int = 1) -> np.ndarray:
         """Play an already-built packet (e.g. a saved payment) again."""
-        frames = [self.modem.encode_frame(c) for c in transport.split(data)]
+        frames = [self.modem.encode_frame(c) for c in transport.split(data, frame_size=self.modem.profile.max_frame)]
         gap = np.zeros(int(0.1 * self.sample_rate), dtype=np.float32)
         parts: list[np.ndarray] = []
         for _ in range(max(1, repeat)):
@@ -63,7 +63,7 @@ class Receiver:
 
     def __init__(
         self,
-        profile: Profile | str = "normal",
+        profile: Profile | OfdmProfile | str = "normal",
         key: bytes | None = None,
         trusted: set[bytes] | None = None,
         replay_guard: ReplayGuard | None = None,

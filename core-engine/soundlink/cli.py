@@ -39,6 +39,8 @@ def _show(result, t0: float | None = None) -> None:
     who = p.signer.hex()[:16] + "..." if p.signer else "unsigned"
     try:
         item = modules.parse(p.type, p.payload)
+        if item is None:
+            item = _extra(p)
         text = p.payload.hex() if item is None else str(item)
     except PacketError as exc:
         text = f"(bad payload: {exc}) {p.payload.hex()}"
@@ -50,6 +52,85 @@ def _show(result, t0: float | None = None) -> None:
             f" quality={min(x.quality for x in f):.1f} fixed={sum(x.corrected for x in f)}"
         )
     print(f"  [{name}] from {who}: {text}{stats}")
+
+
+def _extra(p):
+    from . import extras
+
+    if p.type == PacketType.EMERGENCY:
+        a = extras.Alert.from_bytes(p.payload)
+        return f"{extras.SEVERITY[a.severity]} {extras.ALERT_KIND[a.kind]} [{a.area}] {a.title}: {a.message}"
+    if p.type == PacketType.SENSOR:
+        r = extras.SensorReport.from_bytes(p.payload)
+        return f"{r.name} #{r.seq}: " + ", ".join(r.describe())
+    if p.type == PacketType.FILE_HANDSHAKE:
+        o = extras.FileOffer.from_bytes(p.payload)
+        return f"file {o.name} ({o.size} bytes) " + (o.url if o.mode == extras.FILE_LINK else "inline")
+    return None
+
+
+def cmd_alert(args) -> None:
+    from .extras import ALERT_KIND, SEVERITY, Alert
+
+    sev = {v.lower(): k for k, v in SEVERITY.items()}[args.severity]
+    kind = [k for k, v in ALERT_KIND.items() if v.lower().startswith(args.kind)][0]
+    expires = int(time.time() + args.hours * 3600) if args.hours else 0
+    a = Alert(args.title, args.message, sev, kind, args.area, expires=expires)
+    link = _sender(args)
+    wave = link.encode(Packet(PacketType.EMERGENCY, a.to_bytes()), encrypt=False, repeat=args.repeat)
+    if args.out:
+        audio.write_wav(args.out, wave, link.sample_rate)
+        print(f"wrote {args.out} ({len(wave) / link.sample_rate:.1f}s)")
+    else:
+        print(f"playing alert ({len(wave) / link.sample_rate:.1f}s)")
+        audio.play(wave, link.sample_rate)
+
+
+def cmd_sendfile(args) -> None:
+    from pathlib import Path
+
+    from .extras import INLINE_MAX, FileOffer, guess_mime
+    from .files import FileShare
+
+    path = Path(args.file)
+    link = _sender(args)
+    share = None
+    if args.inline or path.stat().st_size <= min(args.inline_max, INLINE_MAX):
+        offer = FileOffer.inline(path.name, path.read_bytes(), guess_mime(path.name))
+        print(f"sending {path.name} inside the sound ({offer.size} bytes)")
+    else:
+        share = FileShare(path, timeout_s=args.minutes * 60).start()
+        offer = share.offer()
+        print(f"serving {path.name} at {offer.url} for {args.minutes} min (same Wi-Fi only)")
+    wave = link.encode(Packet(PacketType.FILE_HANDSHAKE, offer.to_bytes()), encrypt=False, repeat=args.repeat)
+    print(f"playing offer ({len(wave) / link.sample_rate:.1f}s, {args.profile})")
+    audio.play(wave, link.sample_rate)
+    if share:
+        try:
+            print("waiting for downloads, Ctrl+C to stop")
+            while share._thread.is_alive():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"{share.downloads} download(s)")
+            share.stop()
+
+
+def cmd_getfile(args) -> None:
+    from .extras import FileOffer
+    from .files import fetch
+
+    rx = Receiver(args.profile)
+    print(f"listening for a file offer ({args.profile})...")
+    for block in audio.listen(PROFILES[args.profile].sample_rate):
+        for r in rx.feed(block):
+            if r.packet is None or r.packet.type != PacketType.FILE_HANDSHAKE:
+                continue
+            offer = FileOffer.from_bytes(r.packet.payload)
+            print(f"got offer: {offer.name} ({offer.size} bytes)")
+            print(f"saved {fetch(offer, args.folder)}")
+            return
 
 
 def cmd_keygen(args) -> None:
@@ -323,6 +404,30 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--save", help="save the recording to a WAV file")
     common(p, sender=True)
     p.set_defaults(func=cmd_loopback)
+
+    p = sub.add_parser("alert", help="broadcast an emergency alert")
+    p.add_argument("title")
+    p.add_argument("message", nargs="?", default="")
+    p.add_argument("--severity", choices=["info", "warning", "danger"], default="warning")
+    p.add_argument("--kind", default="general", help="general, flood, fire, earthquake, cyclone, medical, police, evacuate, all")
+    p.add_argument("--area", default="")
+    p.add_argument("--hours", type=float, default=0, help="alert ends after this many hours")
+    p.add_argument("--out", help="save to WAV (e.g. for a loudspeaker or FM radio)")
+    common(p, sender=True)
+    p.set_defaults(func=cmd_alert)
+
+    p = sub.add_parser("sendfile", help="share a file (small: inside the sound, big: over Wi-Fi)")
+    p.add_argument("file")
+    p.add_argument("--inline", action="store_true", help="always send the file itself by sound")
+    p.add_argument("--inline-max", type=int, default=1500)
+    p.add_argument("--minutes", type=float, default=10)
+    common(p, sender=True)
+    p.set_defaults(func=cmd_sendfile)
+
+    p = sub.add_parser("getfile", help="listen for a file and save it")
+    p.add_argument("--folder", default="received")
+    common(p)
+    p.set_defaults(func=cmd_getfile)
 
     p = sub.add_parser("teach", help="laptop teacher: rotating attendance code")
     p.add_argument("title")

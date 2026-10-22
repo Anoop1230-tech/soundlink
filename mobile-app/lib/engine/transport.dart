@@ -12,9 +12,10 @@ const int chunkHeader = 4;
 const int chunkData = maxFrameData - chunkHeader;
 const int maxChunks = 255;
 
-List<Uint8List> split(List<int> data, {int? transferId}) {
+List<Uint8List> split(List<int> data, {int? transferId, int frameSize = maxFrameData}) {
   if (data.isEmpty) throw ArgumentError('nothing to send');
-  final total = (data.length + chunkData - 1) ~/ chunkData;
+  final chunk = frameSize - chunkHeader;
+  final total = (data.length + chunk - 1) ~/ chunk;
   if (total > maxChunks) throw ArgumentError('data too large (${data.length} bytes)');
   transferId ??= (randomBytes(2)[0] << 8) | randomBytes(1)[0];
   return [
@@ -24,7 +25,7 @@ List<Uint8List> split(List<int> data, {int? transferId}) {
         transferId & 0xFF,
         i,
         total,
-        ...data.sublist(i * chunkData, (i + 1) * chunkData < data.length ? (i + 1) * chunkData : data.length),
+        ...data.sublist(i * chunk, (i + 1) * chunk < data.length ? (i + 1) * chunk : data.length),
       ]),
   ];
 }
