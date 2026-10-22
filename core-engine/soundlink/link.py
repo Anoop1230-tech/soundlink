@@ -51,6 +51,7 @@ class Received:
     error: str | None = None
     frames: list[Frame] = field(default_factory=list)
     received_at: float = field(default_factory=time.time)
+    data: bytes = b""  # the raw packet, so it can be opened later (e.g. after asking for a PIN)
 
 
 class Receiver:
@@ -86,8 +87,8 @@ class Receiver:
             if self.replay_guard is not None:
                 self.replay_guard.check(packet)
         except PacketError as exc:
-            return Received(None, str(exc), frames)
-        return Received(packet, None, frames)
+            return Received(None, str(exc), frames, data=data)
+        return Received(packet, None, frames, data=data)
 
     def feed(self, samples: np.ndarray) -> list[Received]:
         return self._process(self.demod.feed(samples))

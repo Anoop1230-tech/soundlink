@@ -17,11 +17,11 @@ import time
 
 import numpy as np
 
-from . import audio
+from . import audio, modules
 from .crypto import Identity, key_from_pin
 from .link import Receiver, SoundLink, decode_audio
 from .modem import PROFILES
-from .packet import Packet, PacketType
+from .packet import Packet, PacketError, PacketType
 
 
 def _sender(args) -> SoundLink:
@@ -38,9 +38,10 @@ def _show(result, t0: float | None = None) -> None:
     name = p.type.name if isinstance(p.type, PacketType) else hex(p.type)
     who = p.signer.hex()[:16] + "..." if p.signer else "unsigned"
     try:
-        text = p.payload.decode("utf-8")
-    except UnicodeDecodeError:
-        text = p.payload.hex()
+        item = modules.parse(p.type, p.payload)
+        text = p.payload.hex() if item is None else str(item)
+    except PacketError as exc:
+        text = f"(bad payload: {exc}) {p.payload.hex()}"
     f = result.frames
     stats = ""
     if f:
@@ -69,6 +70,31 @@ def cmd_encode(args) -> None:
     wave = link.encode(Packet(PacketType.TEXT, args.text.encode()), repeat=args.repeat)
     audio.write_wav(args.out, wave, link.sample_rate)
     print(f"wrote {args.out} ({len(wave) / link.sample_rate:.1f}s)")
+
+
+def cmd_share(args) -> None:
+    """Send a contact, Wi-Fi network or offer (to the speaker, or to a WAV with --out)."""
+    if args.kind == "contact":
+        item = modules.Contact(args.name or "", args.phone or "", args.email or "", args.org or "")
+    elif args.kind == "wifi":
+        sec = modules.WifiSecurity[args.security.upper()]
+        item = modules.Wifi(args.ssid or "", args.password or "", sec, args.hidden)
+    else:
+        expires = int(time.time() + args.days * 86400) if args.days else 0
+        item = modules.Offer(args.title or "", args.shop or "", args.details or "", args.code or "", expires=expires)
+    try:
+        payload = item.to_bytes()
+    except ValueError as exc:
+        sys.exit(f"error: {exc}")
+    link = _sender(args)
+    wave = link.encode(Packet(modules.TYPE_OF[type(item)], payload), repeat=args.repeat)
+    seconds = len(wave) / link.sample_rate
+    if args.out:
+        audio.write_wav(args.out, wave, link.sample_rate)
+        print(f"wrote {args.out} ({seconds:.1f}s): {item}")
+    else:
+        print(f"playing {seconds:.1f}s: {item}")
+        audio.play(wave, link.sample_rate)
 
 
 def cmd_decode(args) -> None:
@@ -172,6 +198,28 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("wav")
     common(p)
     p.set_defaults(func=cmd_decode)
+
+    p = sub.add_parser("share", help="send a contact, Wi-Fi network or offer")
+    p.add_argument("kind", choices=["contact", "wifi", "offer"])
+    p.add_argument("--out", help="save to a WAV file instead of playing")
+    g = p.add_argument_group("contact")
+    g.add_argument("--name")
+    g.add_argument("--phone")
+    g.add_argument("--email")
+    g.add_argument("--org")
+    g = p.add_argument_group("wifi")
+    g.add_argument("--ssid")
+    g.add_argument("--password")
+    g.add_argument("--security", choices=[s.name.lower() for s in modules.WifiSecurity], default="wpa")
+    g.add_argument("--hidden", action="store_true")
+    g = p.add_argument_group("offer")
+    g.add_argument("--title")
+    g.add_argument("--shop")
+    g.add_argument("--details")
+    g.add_argument("--code")
+    g.add_argument("--days", type=float, help="offer ends after this many days")
+    common(p, sender=True)
+    p.set_defaults(func=cmd_share)
 
     p = sub.add_parser("listen", help="listen on the microphone")
     common(p)

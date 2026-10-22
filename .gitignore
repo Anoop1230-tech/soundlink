@@ -9,6 +9,8 @@ dist/
 # recordings and keys made while testing
 *.wav
 *.key
+# ...except the small test recordings the app tests need
+!mobile-app/test/fixtures/*.wav
 
 .vscode/
 .idea/

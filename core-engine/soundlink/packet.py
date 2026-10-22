@@ -8,15 +8,15 @@ Every feature (payment, Wi-Fi share, attendance, ...) sends the same packet:
     | crc16(2)                                              |
 
 - Compression: raw DEFLATE, only used when it makes the payload smaller.
-- Encryption: XSalsa20-Poly1305. Body = nonce_extra(8) + ciphertext + MAC(16).
-  The 24-byte nonce is hash(header + nonce_extra), so changing the header
-  breaks decryption.
+- Encryption: XChaCha20-Poly1305. Body = nonce_extra(8) + ciphertext + MAC(16).
+  The 24-byte nonce is header(11) + nonce_extra(8) + 5 zero bytes, and the
+  header is also authenticated, so changing the header breaks decryption.
+  Only 8 random bytes go on air instead of 24, because sound is slow.
 - Signature: Ed25519 over header + body + signer public key.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import struct
 import time
@@ -69,7 +69,7 @@ KNOWN_FLAGS = Flags.COMPRESSED | Flags.ENCRYPTED | Flags.SIGNED
 
 
 def _nonce(header: bytes, extra: bytes) -> bytes:
-    return hashlib.blake2b(header + extra, digest_size=crypto.NONCE_SIZE).digest()
+    return (header + extra).ljust(crypto.NONCE_SIZE, b"\x00")
 
 
 def _compress(data: bytes) -> bytes:
@@ -126,7 +126,7 @@ class Packet:
         header = HEADER.pack(VERSION, int(self.type), int(flags), self.msg_id, self.timestamp)
         if key is not None:
             extra = os.urandom(NONCE_EXTRA_SIZE)
-            body = extra + crypto.encrypt(key, _nonce(header, extra), body)
+            body = extra + crypto.encrypt(key, _nonce(header, extra), body, aad=header)
 
         data = header + body
         if sign_with is not None:
@@ -171,7 +171,7 @@ class Packet:
                 raise PacketError("encrypted body too short")
             extra, ciphertext = body[:NONCE_EXTRA_SIZE], body[NONCE_EXTRA_SIZE:]
             try:
-                body = crypto.decrypt(key, _nonce(header, extra), ciphertext)
+                body = crypto.decrypt(key, _nonce(header, extra), ciphertext, aad=header)
             except ValueError as exc:
                 raise PacketError(str(exc)) from exc
 

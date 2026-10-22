@@ -1,4 +1,8 @@
-"""Signing (Ed25519) and encryption (XSalsa20-Poly1305) helpers built on libsodium."""
+"""Signing (Ed25519) and encryption (XChaCha20-Poly1305) helpers built on libsodium.
+
+The same algorithms are used by the Flutter app (package:cryptography), so
+packets made on a laptop can be read on a phone and the other way round.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +10,24 @@ import hashlib
 import json
 from pathlib import Path
 
+import nacl.bindings as sodium
 import nacl.pwhash
 import nacl.utils
 from nacl.exceptions import BadSignatureError, CryptoError
-from nacl.secret import SecretBox
 from nacl.signing import SigningKey, VerifyKey
 
 PUBLIC_KEY_SIZE = 32
 SIGNATURE_SIZE = 64
-KEY_SIZE = SecretBox.KEY_SIZE
-NONCE_SIZE = SecretBox.NONCE_SIZE
-MAC_SIZE = SecretBox.MACBYTES
+KEY_SIZE = sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES
+NONCE_SIZE = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
+MAC_SIZE = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
 
-# Fixed app-wide salt for PIN keys. A short PIN is easy to brute force from a
-# recording, so PIN mode is only meant for low-value data like Wi-Fi sharing.
-_PIN_SALT = hashlib.sha256(b"soundlink-pin-v1").digest()[: nacl.pwhash.argon2id.SALTBYTES]
+# PIN keys use Argon2id (t=2, m=16 MiB, p=1). 16 MiB keeps it fast on cheap
+# phones. A short PIN is easy to brute force from a recording anyway, so PIN
+# mode is only meant for low-value data like Wi-Fi sharing.
+PIN_OPSLIMIT = 2
+PIN_MEMLIMIT = 16 * 1024 * 1024
+PIN_SALT = hashlib.sha256(b"soundlink-pin-v1").digest()[: nacl.pwhash.argon2id.SALTBYTES]
 
 
 class Identity:
@@ -38,6 +45,10 @@ class Identity:
         return cls(SigningKey(seed))
 
     @property
+    def seed(self) -> bytes:
+        return bytes(self._key)
+
+    @property
     def public_key(self) -> bytes:
         return bytes(self._key.verify_key)
 
@@ -45,8 +56,8 @@ class Identity:
         return self._key.sign(data).signature
 
     def save(self, path: str | Path) -> None:
-        # Prototype only: the seed is stored unencrypted. The app will use Android Keystore.
-        data = {"seed": bytes(self._key).hex(), "public_key": self.public_key.hex()}
+        # Prototype only: the seed is stored unencrypted. The app keeps it in Android Keystore.
+        data = {"seed": self.seed.hex(), "public_key": self.public_key.hex()}
         Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     @classmethod
@@ -69,21 +80,17 @@ def random_key() -> bytes:
 
 def key_from_pin(pin: str) -> bytes:
     return nacl.pwhash.argon2id.kdf(
-        KEY_SIZE,
-        pin.encode("utf-8"),
-        _PIN_SALT,
-        opslimit=nacl.pwhash.argon2id.OPSLIMIT_INTERACTIVE,
-        memlimit=nacl.pwhash.argon2id.MEMLIMIT_INTERACTIVE,
+        KEY_SIZE, pin.encode("utf-8"), PIN_SALT, opslimit=PIN_OPSLIMIT, memlimit=PIN_MEMLIMIT
     )
 
 
-def encrypt(key: bytes, nonce: bytes, plaintext: bytes) -> bytes:
-    """Returns ciphertext with a 16-byte MAC. The nonce is not included."""
-    return SecretBox(key).encrypt(plaintext, nonce).ciphertext
+def encrypt(key: bytes, nonce: bytes, plaintext: bytes, aad: bytes = b"") -> bytes:
+    """Returns ciphertext followed by a 16-byte MAC. The nonce is not included."""
+    return sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, aad, nonce, key)
 
 
-def decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
+def decrypt(key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes = b"") -> bytes:
     try:
-        return SecretBox(key).decrypt(ciphertext, nonce)
+        return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(ciphertext, aad, nonce, key)
     except CryptoError as exc:
         raise ValueError("decryption failed (wrong key or data was changed)") from exc
