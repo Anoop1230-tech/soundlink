@@ -143,6 +143,99 @@ def cmd_loopback(args) -> None:
     sys.exit(0 if ok else 1)
 
 
+def _listen_window(rx: Receiver, seconds: float):
+    """Listen for a while and return everything decoded."""
+    out = []
+    end = time.time() + seconds
+    for block in audio.listen(48000):
+        out += rx.feed(block)
+        if time.time() > end:
+            break
+    return out
+
+
+def _identity(path: str) -> Identity:
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        Identity.generate().save(p)
+        print(f"created a new device key in {p}")
+    return Identity.load(p)
+
+
+def cmd_teach(args) -> None:
+    """Laptop as the teacher: plays a rotating attendance code, records students."""
+    from . import access as A
+
+    me = _identity(args.key_file)
+    cls = A.ClassSession(args.title)
+    link = SoundLink(args.profile, volume=args.volume)
+    rx = Receiver(args.profile)
+    print(f"Class '{args.title}' started. Students: Access -> Attendance -> I'm a student. Ctrl+C to finish.")
+    try:
+        while True:
+            audio.play(link.encode_bytes(cls.beacon(me)), link.sample_rate)
+            for r in _listen_window(rx, 6):
+                if r.packet is None or r.packet.type != PacketType.ATTENDANCE:
+                    continue
+                try:
+                    a, ack, new = cls.check_in(r.packet, me)
+                except (A.AccessError, PacketError) as exc:
+                    print(f"  refused: {exc}")
+                    continue
+                if new:
+                    print(f"  present: {a.name}  ({len(cls.present)} total)")
+                audio.play(link.encode_bytes(ack), link.sample_rate)
+    except KeyboardInterrupt:
+        pass
+    out = args.out or f"attendance-{time.strftime('%Y%m%d-%H%M')}.csv"
+    with open(out, "w", encoding="utf-8", newline="") as f:
+        f.write(cls.csv())
+    print(f"\n{len(cls.present)} present, saved to {out}")
+    for p in cls.problems:
+        print(f"  warning: {p}")
+
+
+def cmd_door(args) -> None:
+    """Laptop as a door: asks phones to prove who they are, logs who opened it."""
+    import json
+    from pathlib import Path
+
+    from . import access as A
+
+    me = _identity(args.key_file)
+    state = Path(args.state)
+    door = A.Door.from_dict(json.loads(state.read_text())) if state.exists() else A.Door(args.name)
+    link = SoundLink(args.profile, volume=args.volume)
+    rx = Receiver(args.profile)
+    print(f"Door '{door.name}' ({len(door.allowed)} phones allowed). Ctrl+C to stop.")
+    try:
+        while True:
+            audio.play(link.encode_bytes(door.challenge(me)), link.sample_rate)
+            for r in _listen_window(rx, 6):
+                if r.packet is None or r.packet.type != PacketType.DOOR_UNLOCK:
+                    continue
+                try:
+                    if r.packet.payload[:1] == bytes([A.DOOR_ENROLL]):
+                        pub, name = A.read_enroll(r.packet, me)
+                        if input(f"  allow '{name}' ({pub.hex()[:16]})? [y/N] ").strip().lower() == "y":
+                            door.allowed[pub.hex()] = name
+                            print("  added")
+                        continue
+                    status, res = door.open(r.packet, me)
+                except (A.AccessError, PacketError) as exc:
+                    print(f"  refused: {exc}")
+                    continue
+                print(f"  {door.log[-1]['who']}: {A.DOOR_STATUS[status]}")
+                audio.play(link.encode_bytes(res), link.sample_rate)
+                if status == A.DOOR_OK:
+                    print("  *** OPEN ***")
+            state.write_text(json.dumps(door.to_dict(), indent=2))
+    except KeyboardInterrupt:
+        state.write_text(json.dumps(door.to_dict(), indent=2))
+
+
 def cmd_bench(args) -> None:
     """Simulated channel: noise, echo and clock drift. No speaker needed."""
     from .sim import channel
@@ -230,6 +323,22 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--save", help="save the recording to a WAV file")
     common(p, sender=True)
     p.set_defaults(func=cmd_loopback)
+
+    p = sub.add_parser("teach", help="laptop teacher: rotating attendance code")
+    p.add_argument("title")
+    p.add_argument("--out", help="CSV file for the attendance list")
+    p.add_argument("--key-file", default="teacher.key")
+    p.add_argument("--profile", choices=PROFILES, default="ultrasonic")
+    p.add_argument("--volume", type=float, default=0.8)
+    p.set_defaults(func=cmd_teach)
+
+    p = sub.add_parser("door", help="laptop door: unlock by phone")
+    p.add_argument("name")
+    p.add_argument("--state", default="door.json", help="allowed phones and log")
+    p.add_argument("--key-file", default="door.key")
+    p.add_argument("--profile", choices=PROFILES, default="normal")
+    p.add_argument("--volume", type=float, default=0.7)
+    p.set_defaults(func=cmd_door)
 
     p = sub.add_parser("bench", help="simulated noise benchmark")
     p.add_argument("--profiles", nargs="+", choices=PROFILES, default=list(PROFILES))

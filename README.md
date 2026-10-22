@@ -4,7 +4,7 @@ Send data between devices using sound. No internet, no Bluetooth, no pairing.
 
 SoundLink is a secure, offline platform for sharing small pieces of data through a speaker and a microphone: payments, Wi-Fi passwords, contacts, attendance, tickets, door unlock, login, emergency alerts and more. Every feature uses the same core engine; only the data inside the packet changes.
 
-> Status: **Phase 3 done.** Core engine (Python), Android app (Flutter) that shares contacts, Wi-Fi networks and offers by sound, and **offline payments** with demo money plus a small bank server that catches double spending.
+> Status: **Phase 4 done.** Core engine (Python), Android app (Flutter) that shares contacts, Wi-Fi and offers by sound, **offline payments** with demo money, and **attendance, tickets, door unlock and passwordless login**.
 
 ## Project layout
 
@@ -45,6 +45,30 @@ python -m soundbank sync
 In the app: **Wallet** tab → enter the bank address (the laptop's Wi-Fi IP, e.g. `http://192.168.1.10:8000`) → Load → **Pay** or **Request money**.
 
 Not safe for real money: the bank runs over plain http on the local network, anyone who can reach it can create accounts with fake money, and the phone's wallet is protected only by app storage (a real system would use a secure hardware counter). Real money also needs RBI/NPCI approval and a bank partner.
+
+## Attendance, tickets, doors and login
+
+All four use the same trick: one side plays a **fresh random challenge**, the phone answers with a reply **signed by its own key** that includes the challenge. A recording of an old reply is useless. Formats are in `core-engine/soundlink/access.py`; the app has them on the **Access** tab.
+
+| Feature | How it works | What it stops |
+|---|---|---|
+| **Attendance** | Teacher plays a code that changes every 10 s (HMAC of a secret). Students' phones answer with the code + their name; teacher's phone confirms. List can be copied as CSV. | Proxy attendance: a code sent to a friend outside is stale in 30 s; one phone counts once |
+| **Tickets** | Organizer signs a ticket tied to the guest's phone key. At the gate, the gate plays a challenge, the phone answers with the ticket signed by the same key. Works offline. | Screenshots and forwarded tickets (wrong key), using a ticket twice |
+| **Door unlock** | Door (a phone, laptop, or later an ESP32) plays a challenge; allowed phones sign it. People ask to be added; the door owner taps Allow. | Replaying a recorded "open" sound, unknown phones |
+| **Login / 2FA** | Website plays a login challenge from the laptop speaker; the phone shows "Log in as anoop?" and sends a signed approval to the site. The first phone that approves a username is linked to it. | Passwords, and logging in from somewhere that can't hear the laptop |
+
+```powershell
+# laptop as teacher / door (needs a working mic)
+python -m soundlink teach "DBMS lecture"        # saves attendance-<date>.csv on Ctrl+C
+python -m soundlink door "Lab 3"
+
+# login demo website
+cd backend
+python -m soundbank serve
+# open http://<laptop-ip>:8000/site in the laptop browser, then on the phone: Access -> Log in to a website
+```
+
+Limits: the login site is a demo (no real accounts, plain http). Tickets and doors trust the organizer's / door's phone; losing that phone means making a new event or door.
 
 ## How it works
 
@@ -146,6 +170,6 @@ Install the APK on two Android phones (or one phone + a laptop running `python -
 - [x] **Phase 1:** core engine (packet, crypto, error correction, modem, tests, benchmark)
 - [x] **Phase 2:** Flutter app with contact share, Wi-Fi share and offers
 - [x] **Phase 3:** offline payment (wallet, bank certificates, sync, double-spend check)
-- [ ] **Phase 4:** attendance, tickets, door unlock, login/2FA
+- [x] **Phase 4:** attendance, tickets, door unlock, login/2FA
 - [ ] **Phase 5:** file transfer, emergency broadcast, ESP32 sensor demo, faster modem
 - [ ] **Phase 6:** auto fallback (sound / QR / BLE), real-device benchmarks, demo

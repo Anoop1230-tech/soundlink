@@ -59,7 +59,10 @@ def create_app(data_dir: str | Path | None = None, clock=now) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("SOUNDBANK_DATA", Path(__file__).resolve().parents[1] / "data"))
     bank = _bank_identity(data_dir)
     db = DB(data_dir / "bank.db")
-    app = FastAPI(title="SoundBank (demo money)", version="0.3.0")
+    app = FastAPI(title="SoundBank (demo money)", version="0.4.0")
+    from .site import router as site_router
+
+    app.include_router(site_router(bank, db, clock))
 
     @app.exception_handler(rules.BankError)
     async def bank_error(_, exc: rules.BankError):

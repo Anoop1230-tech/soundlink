@@ -1,9 +1,12 @@
 // End to end against a real SoundBank server. Skipped unless SOUNDBANK_URL is set:
 //   python -m soundbank serve --port 8765        (in backend/)
 //   SOUNDBANK_URL=http://127.0.0.1:8765 flutter test test/bank_e2e_test.dart
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:soundlink/engine/engine.dart';
 import 'package:soundlink/services/bank.dart';
 
@@ -52,6 +55,26 @@ class Person {
 }
 
 void main() {
+  test('website login by sound against the real server', () async {
+    final phone = await Identity.generate();
+    final base = Uri.parse(url!);
+    Future<(int, Map<String, dynamic>)> postJson(Uri u, Map<String, dynamic> body) async {
+      final r = await http.post(u, headers: {'Content-Type': 'application/json'}, body: jsonEncode(body));
+      return (r.statusCode, jsonDecode(r.body) as Map<String, dynamic>);
+    }
+
+    final (_, start) = await postJson(base.resolve('/site/start'), {'user': 'dart${unixNow()}', 'profile': 'fast'});
+    final wav = await http.get(base.resolve(start['sound'] as String));
+    final (audio, _) = decodeWav(Uint8List.fromList(wav.bodyBytes));
+    final heard = (await decodeAudio(audio, profiles['fast']!)).first;
+    final ch = readAuthChallenge(heard.packet!);
+    final resp = await authResponsePacket(ch, true, phone);
+    final (code, _) = await postJson(Uri.parse(ch.url), {'response': hexOf(resp)});
+    expect(code, 200);
+    final st = await http.get(base.resolve('/site/status/${start['session']}'));
+    expect(jsonDecode(st.body)['status'], 'approved');
+  }, skip: url == null ? 'set SOUNDBANK_URL to run' : false, timeout: const Timeout(Duration(minutes: 2)));
+
   test('phone wallet against the real bank', () async {
     final asha = await Person.make('Asha (dart)');
     final chai = await Person.make('Chai (dart)');

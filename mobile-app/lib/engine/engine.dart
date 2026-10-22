@@ -1,6 +1,7 @@
 /// SoundLink core engine (Dart port of core-engine/soundlink).
 library;
 
+export 'access.dart';
 export 'crc.dart';
 export 'crypto.dart';
 export 'fec.dart' show FecError, rsEncode, rsDecode, encodedLen;

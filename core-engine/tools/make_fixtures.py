@@ -90,9 +90,59 @@ def main(out_dir: str) -> None:
     wav("fast_payment_noisy.wav", "fast", PacketType.PAYMENT,
         Packet.from_bytes(bytes.fromhex(pv["payment"])).payload, snr=10)
     vectors["payment"] = pv
+    vectors["access"] = _access_vectors(me)
 
     (out / "vectors.json").write_text(json.dumps(vectors, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"wrote {len(vectors['wavs'])} WAVs and vectors.json to {out}")
+
+
+def _access_vectors(phone: Identity) -> dict:
+    """Packets from the 'other side' (teacher, organizer, gate, door, site) plus
+    the payloads the phone should answer with. Ed25519 is deterministic, so the
+    Dart side must build exactly the same payloads."""
+    from soundlink import access as A
+
+    other = Identity.from_seed(bytes(range(96, 128)))
+    now = 1_800_000_000
+    cls = A.ClassSession("DBMS lecture", session=0x0A0B0C0D, secret=bytes(16), started=now)
+    beacon_raw = cls.beacon(other, now=now)
+    b = A.read_beacon(Packet.from_bytes(beacon_raw))
+    checkin = Packet.from_bytes(A.check_in_packet(b, "Anoop", phone))
+    _, ack, _ = cls.check_in(checkin, other, now=now)
+
+    ev = A.Event("Tech Fest", now + 3600, event=0x11223344)
+    ask = Packet.from_bytes(A.ask_packet("Anoop", phone))
+    ticket, issue = ev.issue(ask, other)
+    gate = ev.gate(other, now=now)
+    _, gnonce, _ = A.read_gate(Packet.from_bytes(gate))
+    show = Packet.from_bytes(A.show_packet(gnonce, ticket, phone))
+    _, _, result = ev.check(show, other, now=now)
+
+    door = A.Door("Lab 3", {phone.public_key.hex(): "Anoop"})
+    dch = door.challenge(other, now=now)
+    dnonce, _, _ = A.read_door_challenge(Packet.from_bytes(dch))
+    dopen = Packet.from_bytes(A.open_packet(dnonce, other.public_key, phone))
+    _, dres = door.open(dopen, other, now=now)
+    enroll = Packet.from_bytes(A.enroll_packet(other.public_key, "Anoop", phone))
+
+    ch = A.AuthChallenge(bytes(range(16)), now + 120, "SoundBank demo", "anoop", "http://192.168.1.10:8000/site/approve")
+    ach = A.auth_challenge_packet(ch, other)
+    resp = Packet.from_bytes(A.auth_response_packet(A.read_auth_challenge(Packet.from_bytes(ach)), True, phone))
+
+    return {
+        "now": now,
+        "other_seed": other.seed.hex(),
+        "other_pub": other.public_key.hex(),
+        "attendance": {"secret": cls.secret.hex(), "session": cls.session, "window": b.window,
+                       "code": b.code.hex(), "beacon": beacon_raw.hex(), "checkin_payload": checkin.payload.hex(),
+                       "ack": ack.hex()},
+        "ticket": {"event": ev.event, "valid_until": ev.valid_until, "ask_payload": ask.payload.hex(),
+                   "issue": issue.hex(), "ticket": ticket.to_bytes().hex(), "gate": gate.hex(),
+                   "show_payload": show.payload.hex(), "result": result.hex()},
+        "door": {"challenge": dch.hex(), "open_payload": dopen.payload.hex(), "result": dres.hex(),
+                 "enroll_payload": enroll.payload.hex()},
+        "auth": {"challenge": ach.hex(), "response_payload": resp.payload.hex()},
+    }
 
 
 def _payment_vectors(payer: Identity) -> dict:

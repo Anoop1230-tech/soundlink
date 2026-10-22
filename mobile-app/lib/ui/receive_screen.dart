@@ -40,9 +40,20 @@ class _ReceiveScreenState extends State<ReceiveScreen> {
   }
 
   Future<void> _onPacket(Received r) async {
-    // Payments are handled on the Wallet tab.
+    // Payments are on the Wallet tab; attendance, tickets, doors and login on the Access tab.
     final t = r.packet?.type ?? (r.data.length > 1 ? r.data[1] : -1);
-    if (t == PacketType.paymentRequest || t == PacketType.payment || t == PacketType.paymentReceipt) return;
+    if (const {
+      PacketType.paymentRequest,
+      PacketType.payment,
+      PacketType.paymentReceipt,
+      PacketType.attendance,
+      PacketType.ticket,
+      PacketType.doorUnlock,
+      PacketType.authChallenge,
+      PacketType.authResponse,
+    }.contains(t)) {
+      return;
+    }
     if (r.ok) {
       await _accept(r.packet!, r.profile);
     } else if (r.locked) {

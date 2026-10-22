@@ -66,6 +66,12 @@ class Identity:
         return cls.from_seed(bytes.fromhex(data["seed"]))
 
 
+def fingerprint_hex(public_key: bytes) -> str:
+    """Short id like "3fa9 01c2 77de 5b10" (same as the app shows)."""
+    h = public_key[:8].hex()
+    return " ".join(h[i : i + 4] for i in range(0, 16, 4))
+
+
 def verify(public_key: bytes, data: bytes, signature: bytes) -> bool:
     try:
         VerifyKey(public_key).verify(data, signature)

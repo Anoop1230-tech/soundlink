@@ -12,7 +12,7 @@ import numpy as np
 
 def write_wav(path: str | Path, audio: np.ndarray, sample_rate: int) -> None:
     pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
+    with wave.open(path if hasattr(path, "write") else str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(sample_rate)
