@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'services/access_store.dart';
 import 'services/audio.dart';
@@ -13,10 +16,59 @@ import 'ui/wallet_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final store = await AppStore.open();
-  final wallet = await WalletStore.open(store.identity);
-  final access = await AccessStore.open();
-  runApp(SoundLinkApp(store: store, wallet: wallet, access: access));
+  var step = 'start';
+  // Each step has a time limit so a step that never finishes shows up as an error
+  // instead of leaving the phone on the splash screen.
+  Future<T> run<T>(String name, Future<T> Function() f) {
+    step = name;
+    return f().timeout(const Duration(seconds: 20));
+  }
+
+  try {
+    final store = await run('open app storage (AppStore)', AppStore.open);
+    final wallet = await run('open wallet (WalletStore)', () => WalletStore.open(store.identity));
+    final access = await run('open access storage (AccessStore)', AccessStore.open);
+    runApp(SoundLinkApp(store: store, wallet: wallet, access: access));
+  } catch (e, st) {
+    runApp(StartupErrorApp(step: step, error: e, stack: st));
+  }
+}
+
+/// Shown instead of the app when startup fails, so the error can be read on the phone.
+class StartupErrorApp extends StatelessWidget {
+  final String step;
+  final Object error;
+  final StackTrace stack;
+  const StartupErrorApp({super.key, required this.step, required this.error, required this.stack});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = 'SoundLink could not start.\n\nStep: $step\n\nError: $error\n\n$stack';
+    return MaterialApp(
+      title: 'SoundLink',
+      home: Builder(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('SoundLink: startup error')),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(text, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+            ),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            icon: const Icon(Icons.copy),
+            label: const Text('Copy error'),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class SoundLinkApp extends StatelessWidget {
